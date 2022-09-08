@@ -98,8 +98,8 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None,
     train_loss /= n
     return train_loss
 
-from analysis import TrialData
 def get_errors(model, dataloader, td_responses, t):
+    from analysis import TrialData
     responses = probe_model(model, dataloader, TrialData)
     if t == 0:
         assert all([x.trial_length == y.trial_length for x,y in zip(responses, td_responses)])
