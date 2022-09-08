@@ -52,10 +52,7 @@ def main_inner(args):
                      omission_trials_have_duration=True,
                      half_reward_times=False)
     E.include_null_input = args.rnn_mode == 'belief'
-    
-    E_test = deepcopy(E); E_test.make_trials()
     dataloader = make_dataloader(E, batch_size=args.batch_size)
-    test_dataloader = make_dataloader(E_test, batch_size=args.batch_size)
     
     # create RNN
     output_size = E.ncues + int(E.include_reward) + 1 if E.include_null_input else 1
@@ -71,14 +68,13 @@ def main_inner(args):
     model.to(device)
     
     # train and save model
-    scores, test_scores, weights = train_model(model, dataloader, lr=args.lr,
+    scores, _, weights = train_model(model, dataloader, lr=args.lr,
                                                epochs=args.n_epochs,
-                                               test_dataloader=test_dataloader,
                                                td_responses=None)
     if len(scores) < args.n_epochs:
         print("Model did not train for all epochs ({} of {}). Quitting without saving.".format(len(scores), args.n_epochs))
         return
-    save_model(args, model, (scores.tolist(), test_scores.tolist()))
+    save_model(args, model, scores.tolist())
     
 def main(args):
     print(vars(args))
