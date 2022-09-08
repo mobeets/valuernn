@@ -4,8 +4,8 @@
 #SBATCH -t 0-04:00          # Runtime in D-HH:MM, minimum of 10 minutes
 #SBATCH -p shared           # Partition to submit to
 #SBATCH --mem=4000           # Memory pool for all cores (see also --mem-per-cpu)
-#SBATCH -o pytorch_%j.out   # File to which STDOUT will be written, %j inserts jobid
-#SBATCH -e pytorch_%j.err   # File to which STDERR will be written, %j inserts jobid
+#SBATCH -o logs/pytorch_%j.out   # File to which STDOUT will be written, %j inserts jobid
+#SBATCH -e logs/pytorch_%j.err   # File to which STDERR will be written, %j inserts jobid
 
 # Load software modules and source conda environment
 module load python/3.8.5-fasrc01
