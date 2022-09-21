@@ -19,7 +19,7 @@ class ValueRNN(nn.Module):
                  num_layers=1, gamma=0.9, bias=False, learn_weights=False,
                  predict_next_input=False, use_softmax_pre_value=True,
                  recurrent_cell='GRU',
-                 sigma_noise=0.0):
+                 sigma_noise=0.0, extra_rnn=False):
       super(ValueRNN, self).__init__()
 
       self.gamma = gamma
@@ -28,12 +28,19 @@ class ValueRNN(nn.Module):
       self.hidden_size = hidden_size
       self.num_layers = num_layers
       self.recurrent_cell = recurrent_cell
+      self.extra_rnn = extra_rnn
 
+      if extra_rnn and recurrent_cell != 'GRU':
+          raise Exception("recurrent_cell must be GRU to have an extra RNN")
+      elif extra_rnn and sigma_noise > 0:
+          raise Exception("sigma_noise must be zero to have an extra RNN")
       if recurrent_cell == 'GRU':
           if sigma_noise > 0:
               self.rnn = gru_with_noise.GRUWithNoise(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, sigma_noise=sigma_noise)
           else:
               self.rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
+          if extra_rnn:
+              self.rnn_extra = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
       else:
           if sigma_noise > 0:
               raise Exception("recurrent_cell must be GRU to have sigma_noise > 0")
@@ -45,7 +52,7 @@ class ValueRNN(nn.Module):
               raise Exception("recurrent_cell options: GRU, RNN, LSTM")
 
       if learn_weights:
-          self.value = nn.Linear(in_features=hidden_size,
+          self.value = nn.Linear(in_features=hidden_size + hidden_size*extra_rnn,
                              out_features=output_size, bias=False)
       else:
           self.value = lambda x: torch.sum(x,2)[:,:,None]
@@ -60,10 +67,16 @@ class ValueRNN(nn.Module):
       self.saved_weights = {}
       self.reset()
 
-    def forward(self, x):
-        x, hidden = self.rnn(x)
+    def forward(self, xin):
+        x, hidden = self.rnn(xin)
+        if self.extra_rnn:
+            x2, hidden2 = self.rnn_extra(xin)
         if type(x) is torch.nn.utils.rnn.PackedSequence:
             x, output_lengths = pad_packed_sequence(x, batch_first=False)
+            if self.extra_rnn:
+                x2, output_lengths = pad_packed_sequence(x2, batch_first=False)
+        if self.extra_rnn:
+            x = torch.dstack([x, x2])
     
         if self.predict_next_input:
             # x = F.softmax(x, dim=-1)
@@ -75,7 +88,64 @@ class ValueRNN(nn.Module):
                 x = F.softmax(x, dim=-1)
             return self.bias + self.value(x), hidden
     
+    def forward_with_lesion_inner(self, x, indices, first_rnn=True):
+        hs = []
+        cs = []
+        os = []
+        h_t = torch.zeros((1, x.shape[1], self.hidden_size))
+        if self.recurrent_cell == 'LSTM':
+            c_t = torch.zeros((1, x.shape[1], self.hidden_size))
+            send_cell = True
+        else:
+            send_cell = False
+        for x_t in x:
+            h_t_cur = (h_t, c_t) if send_cell else h_t
+            if first_rnn:
+                o_t, h_t = self.rnn(x_t[None,:], h_t_cur)
+            else:
+                assert(self.extra_rnn)
+                o_t, h_t = self.rnn_extra(x_t[None,:], h_t_cur)
+            if send_cell:
+                (h_t, c_t) = h_t
+            if len(h_t) == 0:
+                assert self.recurrent_cell == 'GRU' and self.rnn.sigma_noise > 0
+                h_t = o_t
+
+            if indices is not None:
+                for index in indices:
+                    if index > h_t.shape[-1]:
+                        raise Exception("Cannot lesions cell units in LSTM")
+                    h_t.data[:,:,index] = 0
+                    # n.b. can't lesion c_t in isolation b/c h_t depends on c_t
+            hs.append(h_t)
+            os.append(o_t)
+            if send_cell:
+                cs.append(c_t)                
+            
+        hs = torch.vstack(hs)
+        os = torch.vstack(os)
+        if send_cell:
+            cs = torch.vstack(cs)
+            hs = (hs, cs)
+        return hs, os
+    
     def forward_with_lesion(self, x, indices):
+        inds = None if indices is None else [x for x in indices if x < self.hidden_size]
+        hs, os = self.forward_with_lesion_inner(x, inds)
+        if self.extra_rnn:
+            inds2 = None if indices is None else [x-self.hidden_size for x in indices if x-self.hidden_size>=0]
+            hs2, os2 = self.forward_with_lesion_inner(x, inds2)
+            hs = torch.dstack([hs, hs2])
+            os = torch.dstack([os, os2])
+            
+        if self.predict_next_input:
+            return self.bias + self.value(os), hs
+        else:
+            if self.use_softmax_pre_value:
+                os = F.softmax(os, dim=-1)
+            return self.bias + self.value(os), hs
+    
+    def forward_with_lesion_old(self, x, indices):
         # note: valid for GRU only!
         # assert self.recurrent_type == "GRU", "Inactivating units requires a GRU!"
         hs = []

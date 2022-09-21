@@ -20,10 +20,10 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print('Using device: {}'.format(device))
 
 def save_model(args, model, scores):
-    model_name = '{}_{}_task{}_{}_h{}_itimin{}_{}cues'.format(
+    model_name = '{}_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
                         args.run_name, args.rnn_mode, args.task_index,
                         args.recurrent_cell.lower(), args.hidden_size,
-                        args.iti_min, args.ncues)
+                        args.iti_min, args.ncues, '_extra' if args.extra_rnn else '')
     models = glob.glob(os.path.join(args.save_dir, model_name + '*.pth'))
     if models:
         max_version = max([int(x.split('_v')[-1].split('.pth')[0]) for x in models])
@@ -42,7 +42,8 @@ def save_model(args, model, scores):
 
 def main_inner(args):
     # create experiment
-    np.random.seed(args.random_seed)
+    if args.random_seed is not None:
+        np.random.seed(args.random_seed)
     E = Starkweather(ncues=args.ncues,
                      ntrials_per_cue=args.ntrials_per_cue,
                      ntrials_per_episode=args.ntrials_per_episode,
@@ -64,7 +65,8 @@ def main_inner(args):
                     learn_weights=True,
                     recurrent_cell=args.recurrent_cell,
                     use_softmax_pre_value=False,
-                    sigma_noise=args.sigma_noise)
+                    sigma_noise=args.sigma_noise,
+                    extra_rnn=args.extra_rnn)
     model.to(device)
     
     # train and save model
@@ -95,7 +97,7 @@ if __name__ == '__main__':
     
     # experiment parameters
     parser.add_argument('--random_seed', type=int,
-        default=555,
+        default=None,
         help='random seed used for generating training data')
     parser.add_argument('-t', '--task_index', type=int,
         default=2,
@@ -134,6 +136,7 @@ if __name__ == '__main__':
         type=int,
         default=100,
         help='number of hidden units in the rnn')
+    parser.add_argument('--extra_rnn', action='store_true')
     parser.add_argument('-s', '--sigma_noise',
         type=float,
         default=0.0,
