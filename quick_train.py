@@ -56,8 +56,9 @@ def main_inner(args):
     dataloader = make_dataloader(E, batch_size=args.batch_size)
     
     # create RNN
+    input_size = E.ncues + int(E.include_reward) + int(E.include_null_input)
     output_size = E.ncues + int(E.include_reward) + 1 if E.include_null_input else 1
-    model = ValueRNN(input_size=E.ncues + int(E.include_reward),
+    model = ValueRNN(input_size=input_size,
                     output_size=output_size,
                     hidden_size=args.hidden_size,
                     gamma=args.gamma,
