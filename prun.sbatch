@@ -12,4 +12,4 @@ module load python/3.8.5-fasrc01
 source activate pt38
 
 # Run program
-srun -c 1 python quick_train.py test"${SLURM_ARRAY_TASK_ID}"
+srun -c 1 python quick_train.py val"${SLURM_ARRAY_TASK_ID}" -t 2 -k ${SLURM_ARRAY_TASK_ID}
