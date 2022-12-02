@@ -9,6 +9,7 @@ import numpy as np
 from copy import deepcopy
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 
@@ -42,7 +43,7 @@ def score_epoch(model, dataloader, loss_fn, V_targets):
 
 def train_epoch(model, dataloader, loss_fn, optimizer=None,
                 handle_padding=True, inactivation_indices=None,
-                predict_next_input=False):
+                predict_next_input=False, split_rpes=False):
     " if optimizer is None, no gradient steps are taken "
     if optimizer is not None:
         model.train()
@@ -50,6 +51,9 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None,
         model.eval()
     train_loss = 0
     n = 0
+    if split_rpes:
+        print("WARNING: splitting rpes!")
+        assert handle_padding, "must handle padding to split rpes"
 
     for batch, (X, y, x_lengths, trial_lengths) in enumerate(dataloader):
         if predict_next_input:
@@ -80,7 +84,13 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None,
             loss = 0.0
             for i,l in enumerate(x_lengths):
                 # we must stop one short because V_target is one step ahead
-                loss += loss_fn(V_hat[:,i][:(l-1)], V_target[:,i][:(l-1)])
+                if split_rpes:
+                    Vp = V_target[:,i][:(l-1)] + F.relu(V_hat[:,i][:(l-1)] - V_target[:,i][:(l-1)])
+                    loss += loss_fn(Vp, V_target[:,i][:(l-1)])
+                    Vn = V_target[:,i][:(l-1)] + F.relu(V_target[:,i][:(l-1)] - V_hat[:,i][:(l-1)])
+                    loss += loss_fn(Vn, V_target[:,i][:(l-1)])
+                else:
+                    loss += loss_fn(V_hat[:,i][:(l-1)], V_target[:,i][:(l-1)])
             loss /= len(x_lengths)
         else:
             loss = loss_fn(V_hat, V_target)
@@ -173,7 +183,8 @@ def train_model(model, dataloader, lr, nchances=4, epochs=5000, handle_padding=T
         return scores, other_scores, weights
 
 def probe_model(model, dataloader, constructor=None,
-                predict_next_input=False, inactivation_indices=None):
+                predict_next_input=False, inactivation_indices=None,
+                value_weights=None):
     responses = []
     model.prepare_to_gather_activity()
     with torch.no_grad():
@@ -211,6 +222,16 @@ def probe_model(model, dataloader, constructor=None,
                     V_target = r + model.gamma*V_next
                     rpe = V_target - V_hat
                 
+                if value_weights is not None:
+                    # use provided weights to estimate value from Z
+                    Z_hat = Z[:-1,:]
+                    Z_next = Z[1:,:]
+                    V_hat = Z_hat @ value_weights[:-1] + value_weights[-1]
+                    V_next = Z_next @ value_weights[:-1] + value_weights[-1]
+                    r = y[1:,:]
+                    V_target = r + model.gamma*V_next
+                    rpe = V_target - V_hat
+                
                 # recover trial info
                 # n.b. here we assume dataloader.dataset.include_reward
                 if predict_next_input:
@@ -221,9 +242,15 @@ def probe_model(model, dataloader, constructor=None,
                         cue = np.where(X[:,:-1].sum(axis=0))[0][0]
                     except:
                         cue = np.nan
-                    iti = np.where(X.sum(axis=1))[0][0]
+                    try:
+                        iti = np.where(X[:,:-1].sum(axis=1))[0][0]
+                    except:
+                        iti = np.nan
                 if y.sum() > 0:
-                    isi = np.where(y)[0][0] - iti
+                    if ~np.isnan(iti):
+                        isi = np.where(y)[0][0] - iti
+                    else:
+                        isi = np.where(y)[0][0]
                 else:
                     isi = np.nan
                 

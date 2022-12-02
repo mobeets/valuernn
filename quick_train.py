@@ -5,6 +5,7 @@ Created on Thu Sep  8 13:13:11 2022
 
 @author: mobeets
 """
+#%%
 import os.path
 import argparse
 import glob
@@ -13,15 +14,21 @@ import torch
 import numpy as np
 from copy import deepcopy
 
-from starkweather import Starkweather
 from model import ValueRNN
 from train import make_dataloader, train_model
+
+from tasks.starkweather import Starkweather
+from tasks.babayan import Babayan
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print('Using device: {}'.format(device))
+#%%
 
 def save_model(args, model, scores):
-    model_name = '{}_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
-                        args.run_name, args.rnn_mode, args.task_index,
+    model_name = '{}_{}_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
+                        args.run_name, args.rnn_mode, 
+                        args.experiment,
+                        args.task_index if args.experiment == 'starkweather' else '',
                         args.recurrent_cell.lower(), args.hidden_size,
                         args.iti_min, args.ncues, '_extra' if args.extra_rnn else '')
     models = glob.glob(os.path.join(args.save_dir, model_name + '*.pth'))
@@ -44,20 +51,33 @@ def main_inner(args):
     # create experiment
     if args.random_seed is not None:
         np.random.seed(args.random_seed)
-    E = Starkweather(ncues=args.ncues,
-                     ntrials_per_cue=args.ntrials_per_cue,
-                     ntrials_per_episode=args.ntrials_per_episode,
-                     omission_probability=args.p_omission_task_2 if args.task_index==2 else 0.0,
-                     iti_p=args.iti_p,
-                     iti_min=args.iti_min,
-                     omission_trials_have_duration=True,
-                     half_reward_times=False)
-    E.include_null_input = args.rnn_mode == 'belief'
+    if args.experiment == 'starkweather':
+        E = Starkweather(ncues=args.ncues,
+            ntrials_per_cue=args.ntrials_per_cue,
+            ntrials_per_episode=args.ntrials_per_episode,
+            omission_probability=args.p_omission_task_2 if args.task_index==2 else 0.0,
+            iti_p=args.iti_p,
+            iti_min=args.iti_min,
+            omission_trials_have_duration=True,
+            half_reward_times=False)
+        E.include_null_input = args.rnn_mode == 'belief'
+        input_size = E.ncues + int(E.include_reward) + int(E.include_null_input)
+        output_size = E.ncues + int(E.include_reward) + 1 if E.include_null_input else 1
+    elif args.experiment == 'babayan':
+        E = Babayan(nblocks=2*(args.ntrials_per_cue,),
+            ntrials_per_block=2*(5,),
+            reward_sizes_per_block=(1,10),
+            reward_times_per_block=2*(5,),
+            jitter=1,
+            iti_p=args.iti_p,
+            iti_min=args.iti_min,
+            include_unique_rewards=False,
+            ntrials_per_episode=args.ntrials_per_episode)
+        input_size = 1 + int(E.include_reward) + int(E.include_unique_rewards)
+        output_size = 1
     dataloader = make_dataloader(E, batch_size=args.batch_size)
     
     # create RNN
-    input_size = E.ncues + int(E.include_reward) + int(E.include_null_input)
-    output_size = E.ncues + int(E.include_reward) + 1 if E.include_null_input else 1
     model = ValueRNN(input_size=input_size,
                     output_size=output_size,
                     hidden_size=args.hidden_size,
@@ -72,8 +92,8 @@ def main_inner(args):
     
     # train and save model
     scores, _, weights = train_model(model, dataloader, lr=args.lr,
-                                               epochs=args.n_epochs,
-                                               td_responses=None)
+                                        epochs=args.n_epochs,
+                                        td_responses=None)
     if len(scores) < args.n_epochs:
         print("Model did not train for all epochs ({} of {}). Quitting without saving.".format(len(scores), args.n_epochs))
         return
@@ -100,6 +120,10 @@ if __name__ == '__main__':
     parser.add_argument('--random_seed', type=int,
         default=None,
         help='random seed used for generating training data')
+    parser.add_argument('--experiment', type=str,
+        default='starkweather',
+        choices=['starkweather', 'babayan'],
+        help='experimental paradigm')
     parser.add_argument('-t', '--task_index', type=int,
         default=2,
         choices=[1,2],
@@ -135,7 +159,7 @@ if __name__ == '__main__':
         help='the recurrent cell used in the rnn')
     parser.add_argument('-k', '--hidden_size',
         type=int,
-        default=100,
+        default=50,
         help='number of hidden units in the rnn')
     parser.add_argument('--extra_rnn', action='store_true')
     parser.add_argument('-s', '--sigma_noise',

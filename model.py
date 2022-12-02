@@ -6,6 +6,7 @@ Created on Thu Feb  3 11:43:03 2022
 @author: mobeets
 """
 from copy import deepcopy
+import pickle
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,7 +18,7 @@ import gru_with_noise
 class ValueRNN(nn.Module):
     def __init__(self, input_size=4, output_size=1, hidden_size=1, 
                  num_layers=1, gamma=0.9, bias=False, learn_weights=False,
-                 predict_next_input=False, use_softmax_pre_value=True,
+                 predict_next_input=False, use_softmax_pre_value=False,
                  recurrent_cell='GRU',
                  sigma_noise=0.0, extra_rnn=False):
       super(ValueRNN, self).__init__()
@@ -208,7 +209,8 @@ class ValueRNN(nn.Module):
         self.initial_weights = self.checkpoint_weights()
                
     def checkpoint_weights(self):
-        self.saved_weights = deepcopy(self.state_dict())
+        # self.saved_weights = deepcopy(self.state_dict())
+        self.saved_weights = pickle.loads(pickle.dumps(self.state_dict()))
         return self.saved_weights
         
     def restore_weights(self, weights=None):

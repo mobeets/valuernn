@@ -18,19 +18,21 @@ class Starkweather(Dataset):
                  include_null_input=False,
                  omission_trials_have_duration=True,
                  ntrials_per_episode=1,
+                 bin_size=0.2,
                  iti_min=0, iti_p=0.5, iti_max=0, iti_dist='geometric',
                  t_padding=0, half_reward_times=False):
+        self.ncues = ncues
         self.include_reward = include_reward
         self.iti_min = iti_min
         self.iti_max = iti_max # n.b. only used if iti_dist == 'uniform'
         self.iti_p = iti_p
         self.iti_dist = iti_dist
+        self.bin_size = bin_size
         self.t_padding = t_padding
-        self.ncues = ncues
         self.omission_probability = omission_probability
         self.ntrials_per_episode = ntrials_per_episode
-        self.ntrials_per_cue = ntrials_per_cue
-        self.ntrials = self.ncues * self.ntrials_per_cue
+        self.ntrials_per_cue = ntrials_per_cue*(np.ones(self.ncues).astype(int))
+        self.ntrials = sum(self.ntrials_per_cue)
         self.omission_trials_have_duration = omission_trials_have_duration
         self.include_null_input = include_null_input
         self.half_reward_times = half_reward_times
@@ -41,7 +43,7 @@ class Starkweather(Dataset):
 
     def get_reward_time(self, cue):
         rts = np.arange(1.2, 3.0, 0.2)
-        reward_times = (rts/0.2).astype(int)+1
+        reward_times = (rts/self.bin_size).astype(int)+1
         if self.half_reward_times:
             rts_A = rts[4:]
             reward_times_A = reward_times[4:]
@@ -56,6 +58,8 @@ class Starkweather(Dataset):
             ISIpdf = scipy.stats.norm.pdf(rts_A, rts.mean(), 0.5)
             ISIpdf = ISIpdf/ISIpdf.sum()
             isi = reward_times_A[np.random.choice(len(ISIpdf), p=ISIpdf)].astype(int)
+            if is_omission:
+                isi = max(reward_times_A)
             return isi, is_omission
         elif cue == 1:
             is_omission = np.random.rand() < self.omission_probability
@@ -82,7 +86,7 @@ class Starkweather(Dataset):
 
     def make_trials(self, cues=None, ITIs=None):
         if cues is None:
-            self.cues = np.tile(np.arange(self.ncues), self.ntrials_per_cue)
+            self.cues = np.hstack([c*np.ones(n).astype(int) for c,n in zip(range(self.ncues), self.ntrials_per_cue)])
             np.random.shuffle(self.cues)
         else:
             self.cues = cues
