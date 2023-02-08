@@ -29,18 +29,6 @@ def pad_collate(batch):
 def make_dataloader(experiment, batch_size):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
-def score_epoch(model, dataloader, loss_fn, V_targets):
-    V_hats = []
-    with torch.no_grad():
-        for batch, (X, y, x_lengths, trial_lengths) in enumerate(dataloader):
-            V_batch, _ = model(X)
-            V_batch = V_batch.numpy()
-            V_hat = []
-            for i,l in enumerate(x_lengths):
-                V_hat += V_batch[:,i][:l]
-            V_hats.extend(V_hat)
-    return loss_fn(V_hats, V_targets)
-
 def train_epoch(model, dataloader, loss_fn, optimizer=None,
                 handle_padding=True, inactivation_indices=None,
                 predict_next_input=False, split_rpes=False):
@@ -91,7 +79,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None,
                     loss += loss_fn(Vn, V_target[:,i][:(l-1)])
                 else:
                     loss += loss_fn(V_hat[:,i][:(l-1)], V_target[:,i][:(l-1)])
-            loss /= len(x_lengths)
+            loss /= sum(x_lengths) # when reduction='sum', this makes loss the mean per time step
         else:
             loss = loss_fn(V_hat, V_target)
 
@@ -129,7 +117,7 @@ def train_model(model, dataloader, lr, nchances=4, epochs=5000, handle_padding=T
         else:
             loss_fn = nn.CrossEntropyLoss()
     else:
-        loss_fn = nn.MSELoss()
+        loss_fn = nn.MSELoss(reduction='sum')
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
     
     scores = np.nan * np.ones((epochs+1,))

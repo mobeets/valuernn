@@ -12,4 +12,4 @@ module load python/3.8.5-fasrc01
 source activate pt38
 
 # Run program
-srun -c 1 python quick_train.py newloss"${SLURM_ARRAY_TASK_ID}" -k ${SLURM_ARRAY_TASK_ID} -t 1
+srun -c 1 python quick_train.py newloss"${SLURM_ARRAY_TASK_ID}" -k ${SLURM_ARRAY_TASK_ID} -t 2

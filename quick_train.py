@@ -133,13 +133,13 @@ if __name__ == '__main__':
         choices=[1,2,3,4],
         help='number of cues')
     parser.add_argument('--iti_p', type=float,
-        default=0.25,
+        default=0.125,
         help='iti_p')
     parser.add_argument('--iti_min', type=int,
         default=10,
         help='iti_min')
     parser.add_argument('--p_omission_task_2', type=float,
-        default=0.2,
+        default=0.1,
         help='probability of omission when task_index==2')
     parser.add_argument('--ntrials_per_cue', type=int,
         default=10000,
@@ -159,7 +159,7 @@ if __name__ == '__main__':
         help='the recurrent cell used in the rnn')
     parser.add_argument('-k', '--hidden_size',
         type=int,
-        default=50,
+        default=100,
         help='number of hidden units in the rnn')
     parser.add_argument('--extra_rnn', action='store_true')
     parser.add_argument('-s', '--sigma_noise',
@@ -167,7 +167,7 @@ if __name__ == '__main__':
         default=0.0,
         help='std dev of gaussian noise added to hidden units in the rnn')
     parser.add_argument('-g', '--gamma', type=float,
-        default=0.9,
+        default=0.93,
         help='gamma (discount factor)')
     
     # training parameters
@@ -178,7 +178,7 @@ if __name__ == '__main__':
         default=12,
         help='batch size when training')
     parser.add_argument('-e', '--n_epochs', type=int,
-        default=75,
+        default=150,
         help='number of epochs when training')
     
     args = parser.parse_args()
