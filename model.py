@@ -201,6 +201,27 @@ class ValueRNN(nn.Module):
             if substr is None or substr in name:
                 p.requires_grad = True
 
+    def initialize(self, gain=1):
+        """
+        https://github.com/rodrigorivera/mds20_replearning/blob/0426340725fd55a616b0d40356ddcebe06ed0f24/skip_thought_vectors/encoder.py
+        https://discuss.pytorch.org/t/initializing-rnn-gru-and-lstm-correctly/23605/2
+        https://gist.github.com/kaniblu/81828dfcf5cca60ae93f4d7bd19aeac5
+        https://pytorch.org/docs/stable/nn.init.html
+        """
+        print("WARNING: Using tensorflow-style initialization of GRU/RNN")
+        assert self.num_layers == 1
+        assert self.recurrent_cell.lower() in ['gru', 'rnn']
+        assert self.kernel_initializer == 'glorot_uniform'
+        assert self.recurrent_initializer == 'orthogonal'
+        assert self.bias_regularizer == 'zeros'
+        for weight_ih, weight_hh, bias_ih, bias_hh in self.rnn.all_weights:
+            bias_ih.data.fill_(0)
+            bias_hh.data.fill_(0)
+            for i in range(0, weight_hh.size(0), self.hidden_size):
+                nn.init.orthogonal_(weight_hh.data[i:(i+self.hidden_size)], gain=gain) # orthogonal
+                nonlinearity = 'tanh' if ((self.recurrent_cell.lower() == 'rnn') or (i == 2)) else 'sigmoid'
+                nn.init.xavier_uniform_(weight_ih.data[i:(i+self.hidden_size)], gain=nn.init.calculate_gain(nonlinearity)) # glorot_uniform
+
     def reset(self):
         self.bias = nn.Parameter(torch.tensor(0.0))
         for layer in self.children():
@@ -221,8 +242,8 @@ class ValueRNN(nn.Module):
     def n_parameters(self):
         return sum([p.numel() for p in self.parameters()])
     
-    def save_weights_to_path(self, path):
-        torch.save(self.state_dict(), path)
+    def save_weights_to_path(self, path, weights=None):
+        torch.save(self.state_dict() if weights is None else weights, path)
         
     def load_weights_from_path(self, path):
         self.load_state_dict(torch.load(path))

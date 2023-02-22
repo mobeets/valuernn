@@ -24,23 +24,31 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print('Using device: {}'.format(device))
 #%%
 
-def save_model(args, model, scores):
+def save_model(args, model, scores, weights):
     model_name = '{}_{}_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
                         args.run_name, args.rnn_mode, 
                         args.experiment,
                         args.task_index if args.experiment == 'starkweather' else '',
                         args.recurrent_cell.lower(), args.hidden_size,
                         args.iti_min, args.ncues, '_extra' if args.extra_rnn else '')
-    models = glob.glob(os.path.join(args.save_dir, model_name + '*.pth'))
-    if models:
-        max_version = max([int(x.split('_v')[-1].split('.pth')[0]) for x in models])
-        version = max_version+1
+    model_files = glob.glob(os.path.join(args.save_dir, model_name + '*.pth'))
+    if model_files:
+        max_version = max([int(x.split('_v')[-1].split('.pth')[0]) for x in model_files if '_initial' not in x])
+        version = max_version + 1
     else:
         version = 0
     model_name += '_v{}'.format(version)
+    
+    # save initial model weights
+    outfile = os.path.join(args.save_dir, model_name + '_initial' + '.pth')
+    print("Saving initial weights to {}...".format(outfile))
+    model.save_weights_to_path(outfile, weights[0])
+
+    # save best model weights
     outfile = os.path.join(args.save_dir, model_name + '.pth')
-    print("Saving to {}...".format(outfile))
+    print("Saving best weights to {}...".format(outfile))
     model.save_weights_to_path(outfile)
+
     jsonfile = os.path.join(args.save_dir, model_name + '.json')
     obj = vars(args)
     obj['scores'] = scores # add in scores to obj
@@ -97,7 +105,7 @@ def main_inner(args):
     if len(scores) < args.n_epochs:
         print("Model did not train for all epochs ({} of {}). Quitting without saving.".format(len(scores), args.n_epochs))
         return
-    save_model(args, model, scores.tolist())
+    save_model(args, model, scores.tolist(), weights)
     
 def main(args):
     print(vars(args))
