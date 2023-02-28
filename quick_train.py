@@ -133,7 +133,7 @@ if __name__ == '__main__':
         choices=['starkweather', 'babayan'],
         help='experimental paradigm')
     parser.add_argument('-t', '--task_index', type=int,
-        default=2,
+        default=1,
         choices=[1,2],
         help='task index')
     parser.add_argument('-c', '--ncues', type=int,
