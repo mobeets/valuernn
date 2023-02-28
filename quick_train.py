@@ -47,7 +47,6 @@ def save_model(args, model, scores, weights):
     # save best model weights
     outfile = os.path.join(args.save_dir, model_name + '.pth')
     print("Saving best weights to {}...".format(outfile))
-    model.restore_weights(weights[np.argmin(scores)])
     model.save_weights_to_path(outfile)
 
     jsonfile = os.path.join(args.save_dir, model_name + '.json')

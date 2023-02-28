@@ -12,4 +12,4 @@ module load python/3.8.5-fasrc01
 source activate pt38
 
 # Run program
-srun -c 1 python quick_train.py newloss2_"${SLURM_JOB_ID}"_"${SLURM_ARRAY_TASK_ID}" -k ${SLURM_ARRAY_TASK_ID} --experiment babayan --ntrials_per_episode 50
+srun -c 1 python quick_train.py newloss3_"${SLURM_JOB_ID}"_"${SLURM_ARRAY_TASK_ID}" -k ${SLURM_ARRAY_TASK_ID} --experiment babayan --ntrials_per_episode 50
