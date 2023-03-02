@@ -27,7 +27,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print('Using device: {}'.format(device))
 #%%
 
-def save_model(args, run_index, model, scores, weights):
+def get_filenames(args, run_index):
     model_name = '{}{}_{}_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
                         args.run_name,
                         run_index,
@@ -38,29 +38,38 @@ def save_model(args, run_index, model, scores, weights):
                         args.iti_min, args.ncues, '_extra' if args.extra_rnn else '')
     model_files = glob.glob(os.path.join(args.save_dir, model_name + '*.pth'))
     if model_files:
-        max_version = max([int(x.split('_v')[-1].split('.pth')[0]) for x in model_files if '_initial' not in x])
+        max_version = max([int(x.split('-v')[-1].split('.pth')[0]) for x in model_files if '_initial' not in x and '-v' in x])
         version = max_version + 1
     else:
         version = 0
     model_name += '-v{}'.format(version)
-    
-    # save initial model weights
-    outfile = os.path.join(args.save_dir, model_name + '_initial' + '.pth')
-    print("Saving initial weights to {}...".format(outfile))
-    model.save_weights_to_path(outfile, weights[0])
 
-    # save best model weights
-    outfile = os.path.join(args.save_dir, model_name + '.pth')
-    print("Saving best weights to {}...".format(outfile))
-    model.save_weights_to_path(outfile)
-
+    weightsfile_initial = os.path.join(args.save_dir, model_name + '_initial' + '.pth')
+    weightsfile = os.path.join(args.save_dir, model_name + '.pth')
     jsonfile = os.path.join(args.save_dir, model_name + '.json')
-    obj = vars(args)
-    obj['scores'] = scores # add in scores to obj
-    with open(jsonfile, 'w') as f:
-        json.dump(obj, f)
+    return {'jsonfile': jsonfile, 'weightsfile': weightsfile, 'weightsfile_initial': weightsfile_initial}
 
-def main_inner(run_index, args):
+def save_model_hook(args, run_index):
+    files = get_filenames(args, run_index)
+    def save_hook(model, scores):
+
+        if not os.path.exists(files['weightsfile_initial']):
+            # save initial model weights
+            print("Saving initial weights to {}...".format(files['weightsfile_initial']))
+            model.save_weights_to_path(files['weightsfile_initial'], model.initial_weights)
+
+        # save best model weights
+        print("Saving best weights to {}...".format(files['weightsfile']))
+        model.save_weights_to_path(files['weightsfile'], model.saved_weights)
+
+        # save json
+        obj = vars(args)
+        obj['scores'] = list(scores) # add in scores to obj
+        with open(files['jsonfile'], 'w') as f:
+            json.dump(obj, f)
+    return save_hook
+
+def main_inner(args, run_index):
     # create experiment
     if args.random_seed is not None:
         np.random.seed(args.random_seed)
@@ -77,7 +86,7 @@ def main_inner(run_index, args):
         input_size = E.ncues + int(E.include_reward) + int(E.include_null_input)
         output_size = E.ncues + int(E.include_reward) + 1 if E.include_null_input else 1
     elif args.experiment == 'babayan':
-        E = Babayan(nblocks=2*(args.ntrials_per_cue,),
+        E = Babayan(nblocks=2*(args.nblocks,),
             ntrials_per_block=2*(5,),
             reward_sizes_per_block=(1,10),
             reward_times_per_block=2*(5,),
@@ -92,37 +101,43 @@ def main_inner(run_index, args):
     
     # create RNN
     model = ValueRNN(input_size=input_size,
-                    output_size=output_size,
-                    hidden_size=args.hidden_size,
-                    gamma=args.gamma,
-                    bias=True,
-                    learn_weights=True,
-                    recurrent_cell=args.recurrent_cell,
-                    use_softmax_pre_value=False,
-                    sigma_noise=args.sigma_noise,
-                    extra_rnn=args.extra_rnn)
+        output_size=output_size,
+        hidden_size=args.hidden_size,
+        gamma=args.gamma,
+        bias=True,
+        learn_weights=True,
+        recurrent_cell=args.recurrent_cell,
+        use_softmax_pre_value=False,
+        sigma_noise=args.sigma_noise,
+        extra_rnn=args.extra_rnn)
     model.to(device)
     
+    # get filenames
+    save_hook = save_model_hook(args, run_index)
+
     # train and save model
     scores, _, weights = train_model(model, dataloader, lr=args.lr,
                                         epochs=args.n_epochs,
+                                        save_hook=save_hook,
                                         td_responses=None)
     if len(scores) < args.n_epochs:
-        print("Model did not train for all epochs ({} of {}). Quitting without saving.".format(len(scores), args.n_epochs))
+        print("WARNING: Model did not train for all epochs ({} of {}).".format(len(scores), args.n_epochs))
         return
-    save_model(args, run_index, model, scores.tolist(), weights)
 
 def call_main_inner(**args):
     run_index = args.pop('run_index')
     if type(args) is dict:
         args = Namespace(**args)
     print('======= RUN {} ========'.format(run_index))
-    main_inner(run_index, args)
+    main_inner(args, run_index)
 
 def main(args):
-    """
-    Runs repeats in parallel
-    """
+    # If just one run, call it normally
+    if args.n_repeats == 1:
+        main_inner(args, 1)
+        return
+
+    # Runs repeats in parallel
     CPU_COUNT = multiprocessing.cpu_count()
     print("Found {} cpus".format(CPU_COUNT))
     pool = ThreadPool(CPU_COUNT)
@@ -175,7 +190,10 @@ if __name__ == '__main__':
         help='probability of omission when task_index==2')
     parser.add_argument('--ntrials_per_cue', type=int,
         default=10000,
-        help='number of trials per cue')
+        help='number of trials per cue (starkweather only)')
+    parser.add_argument('--nblocks', type=int,
+        default=1000,
+        help='number of blocks (babayan only)')
     parser.add_argument('--ntrials_per_episode', type=int,
         default=20,
         help='number of trials per episode')

@@ -14,7 +14,11 @@ from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 
 def pad_collate(batch):
-    (xx, yy, trial_lengths) = zip(*batch)
+    try:
+        (xx, yy, trial_lengths, episode) = zip(*batch)
+    except:
+        (xx, yy, trial_lengths) = zip(*batch)
+        episode = None
     x_lengths = [len(x) for x in xx]
 
     X = pad_sequence(xx, batch_first=True, padding_value=0)
@@ -24,10 +28,22 @@ def pad_collate(batch):
     y = torch.transpose(y, 1, 0)
     X = X.float()
     y = y.float()
-    return X, y, x_lengths, trial_lengths
+    return X, y, x_lengths, trial_lengths, episode
 
 def make_dataloader(experiment, batch_size):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
+
+def score_epoch(model, dataloader, loss_fn, V_targets):
+    V_hats = []
+    with torch.no_grad():
+        for batch, (X, y, x_lengths, trial_lengths, episode) in enumerate(dataloader):
+            V_batch, _ = model(X)
+            V_batch = V_batch.numpy()
+            V_hat = []
+            for i,l in enumerate(x_lengths):
+                V_hat += V_batch[:,i][:l]
+            V_hats.extend(V_hat)
+    return loss_fn(V_hats, V_targets)
 
 def train_epoch(model, dataloader, loss_fn, optimizer=None,
                 handle_padding=True, inactivation_indices=None,
@@ -43,14 +59,14 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None,
         print("WARNING: splitting rpes!")
         assert handle_padding, "must handle padding to split rpes"
 
-    for batch, (X, y, x_lengths, trial_lengths) in enumerate(dataloader):
+    for batch, (X, y, x_lengths, trial_lengths, episode) in enumerate(dataloader):
         if predict_next_input:
             X_next = X[1:,:,:]
                         
         if handle_padding:
             # handle sequences with different lengths
             X = pack_padded_sequence(X, x_lengths, enforce_sorted=False)
-        
+
         # train TD learning
         if not inactivation_indices:
             V, _ = model(X)
@@ -105,10 +121,11 @@ def get_errors(model, dataloader, td_responses, t):
     rpe_err = np.nanmean([(v1-v2)**2 for m1,m2 in zip(responses, td_responses) for v1,v2 in zip(m1.rpe, m2.rpe)])
     # value_rho = np.corrcoef(np.array([(v1[0],v2) for m1,m2 in zip(responses, td_responses) for v1,v2 in zip(m1.value, m2.value)])[:-1].T)[0,1]
     return (value_err, rpe_err)
-    
+
 def train_model(model, dataloader, lr, nchances=4, epochs=5000, handle_padding=True,
-                print_every=1, td_responses=None, test_dataloader=None,
-                predict_next_input=False, inactivation_indices=None, null_weight=1.0):
+                print_every=1, save_every=10, save_hook=None, td_responses=None,
+                test_dataloader=None, predict_next_input=False, inactivation_indices=None,
+                null_weight=1.0):
     
     if predict_next_input:
         if null_weight < 1:
@@ -145,6 +162,8 @@ def train_model(model, dataloader, lr, nchances=4, epochs=5000, handle_padding=T
                     output += f', value error: {value_err:0.3f}, rpe error: {rpe_err:0.3f}'
                 other_scores.append(other_score)
                 print(output)
+            if t % save_every == 0 and save_hook is not None:
+                save_hook(model, scores)
             scores[t+1] = train_epoch(model, dataloader, loss_fn, optimizer,
                               handle_padding,
                               predict_next_input=predict_next_input,
@@ -167,16 +186,16 @@ def train_model(model, dataloader, lr, nchances=4, epochs=5000, handle_padding=T
         other_scores = np.array(other_scores)
         scores = scores[~np.isnan(scores)]
         model.restore_weights(best_weights)
+        save_hook(model, scores)
         print(f"Done! Best loss: {best_score}")
         return scores, other_scores, weights
 
-def probe_model(model, dataloader, constructor=None,
-                predict_next_input=False, inactivation_indices=None,
-                value_weights=None):
+def probe_model(model, dataloader, predict_next_input=False, inactivation_indices=None):
     responses = []
     model.prepare_to_gather_activity()
     with torch.no_grad():
-      for batch, (X, y, x_lengths, trial_lengths) in enumerate(dataloader):
+      for batch, (X, y, x_lengths, trial_lengths, episode) in enumerate(dataloader):
+
         X_batch = X.numpy()
         y_batch = y.numpy()
         # if inactivation_indices is None:
@@ -205,50 +224,13 @@ def probe_model(model, dataloader, constructor=None,
                 else:
                     V_hat = V[:-1,:]
                     V_next = V[1:,:]
-                    # r = y[:-1,:]
                     r = y[1:,:]
                     V_target = r + model.gamma*V_next
                     rpe = V_target - V_hat
                 
-                if value_weights is not None:
-                    # use provided weights to estimate value from Z
-                    Z_hat = Z[:-1,:]
-                    Z_next = Z[1:,:]
-                    V_hat = Z_hat @ value_weights[:-1] + value_weights[-1]
-                    V_next = Z_next @ value_weights[:-1] + value_weights[-1]
-                    r = y[1:,:]
-                    V_target = r + model.gamma*V_next
-                    rpe = V_target - V_hat
-                
-                # recover trial info
-                # n.b. here we assume dataloader.dataset.include_reward
-                if predict_next_input:
-                    cue = np.where(X[:,:-2].sum(axis=0))[0][0]
-                    iti = np.where(X[:,:-1].sum(axis=1))[0][0]
-                else:
-                    try:
-                        cue = np.where(X[:,:-1].sum(axis=0))[0][0]
-                    except:
-                        cue = np.nan
-                    try:
-                        iti = np.where(X[:,:-1].sum(axis=1))[0][0]
-                    except:
-                        iti = np.nan
-                if y.sum() > 0:
-                    if ~np.isnan(iti):
-                        isi = np.where(y)[0][0] - iti
-                    else:
-                        isi = np.where(y)[0][0]
-                else:
-                    isi = np.nan
-                
-                data = {'cue': cue, 'iti': iti, 'isi': isi,
-                    'X': X, 'y': y, 'value': V, 'rpe': rpe,
-                    'Z': Z, 'index_in_episode': i}
-                if constructor is not None:
-                    data = constructor(**data)
-                responses.append(data)
-    if constructor is None:
-        pass
-        # responses = sorted(responses, key=lambda data: data['iti'])
+                trial = episode[j][i]
+                trial.Z = Z
+                trial.value = V
+                trial.rpe = rpe
+                responses.append(trial)
     return responses

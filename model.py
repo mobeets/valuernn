@@ -228,7 +228,7 @@ class ValueRNN(nn.Module):
            if hasattr(layer, 'reset_parameters'):
                layer.reset_parameters()
         self.initial_weights = self.checkpoint_weights()
-               
+
     def checkpoint_weights(self):
         # self.saved_weights = deepcopy(self.state_dict())
         self.saved_weights = pickle.loads(pickle.dumps(self.state_dict()))
