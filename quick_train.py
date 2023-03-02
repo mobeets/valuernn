@@ -63,7 +63,9 @@ def save_model_hook(args, run_index):
         model.save_weights_to_path(files['weightsfile'], model.saved_weights)
 
         # save json
-        obj = vars(args)
+        obj = dict(**vars(args))
+        obj['weightsfile'] = files['weightsfile']
+        obj['weightsfile_initial'] = files['weightsfile_initial']
         obj['scores'] = list(scores) # add in scores to obj
         with open(files['jsonfile'], 'w') as f:
             json.dump(obj, f)
