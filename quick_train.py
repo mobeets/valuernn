@@ -93,7 +93,7 @@ def main_inner(args, run_index):
         E = Babayan(nblocks=2*(args.nblocks,),
             ntrials_per_block=2*(5,),
             reward_sizes_per_block=(1,10),
-            reward_times_per_block=2*(5,),
+            reward_times_per_block=2*(args.reward_time,),
             jitter=1,
             iti_p=args.iti_p,
             iti_min=args.iti_min,
@@ -199,8 +199,9 @@ if __name__ == '__main__':
         default=1000,
         help='number of blocks (babayan only)')
     parser.add_argument('--ntrials_per_episode', type=int,
-        default=20,
-        help='number of trials per episode')
+        default=20, help='number of trials per episode')
+    parser.add_argument('--reward_time', type=int,
+        default=5, help='reward time (babayan only)')
     
     # model parameters
     parser.add_argument('-m', '--rnn_mode', type=str,
