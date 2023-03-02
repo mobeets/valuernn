@@ -13,6 +13,7 @@ import glob
 import json
 import torch
 import numpy as np
+import datetime
 from copy import deepcopy
 import multiprocessing
 from multiprocessing.pool import ThreadPool
@@ -64,6 +65,7 @@ def save_model_hook(args, run_index):
 
         # save json
         obj = dict(**vars(args))
+        obj['time'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         obj['weightsfile'] = files['weightsfile']
         obj['weightsfile_initial'] = files['weightsfile_initial']
         obj['scores'] = list(scores) # add in scores to obj
