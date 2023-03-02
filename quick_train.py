@@ -8,11 +8,14 @@ Created on Thu Sep  8 13:13:11 2022
 #%%
 import os.path
 import argparse
+from argparse import Namespace
 import glob
 import json
 import torch
 import numpy as np
 from copy import deepcopy
+import multiprocessing
+from multiprocessing.pool import ThreadPool
 
 from model import ValueRNN
 from train import make_dataloader, train_model
@@ -24,9 +27,11 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print('Using device: {}'.format(device))
 #%%
 
-def save_model(args, model, scores, weights):
-    model_name = '{}_{}_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
-                        args.run_name, args.rnn_mode, 
+def save_model(args, run_index, model, scores, weights):
+    model_name = '{}{}_{}_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
+                        args.run_name,
+                        run_index,
+                        args.rnn_mode, 
                         args.experiment,
                         args.task_index if args.experiment == 'starkweather' else '',
                         args.recurrent_cell.lower(), args.hidden_size,
@@ -37,7 +42,7 @@ def save_model(args, model, scores, weights):
         version = max_version + 1
     else:
         version = 0
-    model_name += '_v{}'.format(version)
+    model_name += '-v{}'.format(version)
     
     # save initial model weights
     outfile = os.path.join(args.save_dir, model_name + '_initial' + '.pth')
@@ -55,7 +60,7 @@ def save_model(args, model, scores, weights):
     with open(jsonfile, 'w') as f:
         json.dump(obj, f)
 
-def main_inner(args):
+def main_inner(run_index, args):
     # create experiment
     if args.random_seed is not None:
         np.random.seed(args.random_seed)
@@ -105,13 +110,32 @@ def main_inner(args):
     if len(scores) < args.n_epochs:
         print("Model did not train for all epochs ({} of {}). Quitting without saving.".format(len(scores), args.n_epochs))
         return
-    save_model(args, model, scores.tolist(), weights)
-    
+    save_model(args, run_index, model, scores.tolist(), weights)
+
+def call_main_inner(**args):
+    run_index = args.pop('run_index')
+    if type(args) is dict:
+        args = Namespace(**args)
+    print('======= RUN {} ========'.format(run_index))
+    main_inner(run_index, args)
+
 def main(args):
-    print(vars(args))
-    for i in range(args.n_repeats):
-        print('========RUN {} of {}========'.format(i+1, args.n_repeats))
-        main_inner(args)
+    """
+    Runs repeats in parallel
+    """
+    CPU_COUNT = multiprocessing.cpu_count()
+    print("Found {} cpus".format(CPU_COUNT))
+    pool = ThreadPool(CPU_COUNT)
+
+    cargs = dict(**vars(args)) # or else the below line changes cargs
+    cargs['n_repeats'] = 1
+    for i in range(1,args.n_repeats+1):
+        targs = dict(**cargs) # or else all cargs are the same
+        targs['run_index'] = i
+        pool.apply_async(call_main_inner, kwds=targs)
+
+    pool.close()
+    pool.join()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
