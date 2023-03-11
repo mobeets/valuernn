@@ -17,8 +17,8 @@ device = torch.device('cpu')
 #%%
 
 class ValueRNN(nn.Module):
-    def __init__(self, input_size=4, output_size=1, hidden_size=1, 
-                 num_layers=1, gamma=0.9, bias=False, learn_weights=False,
+    def __init__(self, input_size=1, output_size=1, hidden_size=1, 
+                 num_layers=1, gamma=0.9, bias=True, learn_weights=True,
                  recurrent_cell='GRU', sigma_noise=0.0):
         super(ValueRNN, self).__init__()
 

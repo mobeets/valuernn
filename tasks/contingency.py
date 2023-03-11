@@ -9,8 +9,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from tasks.trial import Trial, get_itis
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 device = torch.device('cpu')
 
 class Contingency(Dataset):
@@ -37,6 +35,8 @@ class Contingency(Dataset):
         self.mode = mode
         self.rew_times = rew_times
         self.rew_probs = rew_probs
+        if self.mode not in [None, 'conditioning', 'degradation', 'cue-c']:
+            raise Exception("Invalid mode. Must be one of [None, 'conditioning', 'degradation', 'cue-c']")
         if self.mode is not None:
             if self.rew_probs is not None or self.cue_shown is not None:
                 raise Exception("If setting mode, cannot set rew_probs or cue_shown")
@@ -47,7 +47,7 @@ class Contingency(Dataset):
                 elif self.mode.lower() == 'degradation':
                     self.rew_probs = [0.75, 0, 0.75]
                     self.cue_shown = [True, True, False]
-                elif 'cue-c' in self.mode.lower():
+                elif self.mode.lower() == 'cue-c':
                     self.rew_probs = [0.75, 0, 0.75]
                     self.cue_shown = [True, True, True]
                 else:

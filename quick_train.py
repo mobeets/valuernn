@@ -23,20 +23,20 @@ from train import make_dataloader, train_model
 
 from tasks.starkweather import Starkweather
 from tasks.babayan import Babayan
+from tasks.contingency import Contingency
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print('Using device: {}'.format(device))
 #%%
 
 def get_filenames(args, run_index):
-    model_name = '{}{}_{}_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
+    model_name = '{}{}_value_{}_task{}_{}_h{}_itimin{}_{}cues{}'.format(
                         args.run_name,
                         run_index,
-                        args.rnn_mode, 
                         args.experiment,
                         args.task_index if args.experiment == 'starkweather' else '',
                         args.recurrent_cell.lower(), args.hidden_size,
-                        args.iti_min, args.ncues, '_extra' if args.extra_rnn else '')
+                        args.iti_min, args.ncues, '')
     model_files = glob.glob(os.path.join(args.save_dir, model_name + '*.pth'))
     if model_files:
         max_version = max([int(x.split('-v')[-1].split('.pth')[0]) for x in model_files if '_initial' not in x and '-v' in x])
@@ -86,9 +86,8 @@ def main_inner(args, run_index):
             iti_min=args.iti_min,
             omission_trials_have_duration=True,
             half_reward_times=False)
-        E.include_null_input = args.rnn_mode == 'belief'
-        input_size = E.ncues + int(E.include_reward) + int(E.include_null_input)
-        output_size = E.ncues + int(E.include_reward) + 1 if E.include_null_input else 1
+        E.include_null_input = False
+        input_size = E.ncues + int(E.include_reward)
     elif args.experiment == 'babayan':
         E = Babayan(nblocks=2*(args.nblocks,),
             ntrials_per_block=2*(5,),
@@ -99,21 +98,27 @@ def main_inner(args, run_index):
             iti_min=args.iti_min,
             include_unique_rewards=False,
             ntrials_per_episode=args.ntrials_per_episode)
-        input_size = 1 + int(E.include_reward) + int(E.include_unique_rewards)
-        output_size = 1
+        input_size = 1 + int(E.include_reward)
+    elif args.experiment == 'contingency':
+        E = Contingency(mode=args.session_type,
+            ntrials=args.ntrials,
+            jitter=1,
+            iti_p=args.iti_p,
+            iti_min=args.iti_min,
+            ntrials_per_episode=args.ntrials_per_episode)
     dataloader = make_dataloader(E, batch_size=args.batch_size)
     
-    # create RNN
+    # create Value RNN
     model = ValueRNN(input_size=input_size,
-        output_size=output_size,
         hidden_size=args.hidden_size,
         gamma=args.gamma,
         bias=True,
         learn_weights=True,
         recurrent_cell=args.recurrent_cell,
-        use_softmax_pre_value=False,
-        sigma_noise=args.sigma_noise,
-        extra_rnn=args.extra_rnn)
+        sigma_noise=args.sigma_noise)
+    if args.pretrained_modelfile:
+        print("Loading model weights for initialization...")
+        model.load_weights_from_path(args.pretrained_modelfile)
     model.to(device)
     
     # get filenames
@@ -166,6 +171,9 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n_repeats', type=int,
         default=1,
         help='number of models to train')
+    parser.add_argument('--pretrained_modelfile', type=str,
+        default=None,
+        help='modelfile (.pth) to use to initialize weights of model')
     
     # experiment parameters
     parser.add_argument('--random_seed', type=int,
@@ -173,7 +181,7 @@ if __name__ == '__main__':
         help='random seed used for generating training data')
     parser.add_argument('--experiment', type=str,
         default='starkweather',
-        choices=['starkweather', 'babayan'],
+        choices=['starkweather', 'babayan', 'contingency'],
         help='experimental paradigm')
     parser.add_argument('-t', '--task_index', type=int,
         default=1,
@@ -195,19 +203,26 @@ if __name__ == '__main__':
     parser.add_argument('--ntrials_per_cue', type=int,
         default=10000,
         help='number of trials per cue (starkweather only)')
+    parser.add_argument('--ntrials_per_episode', type=int,
+        default=20, help='number of trials per episode')
+    
+    # babayan task only
     parser.add_argument('--nblocks', type=int,
         default=1000,
         help='number of blocks (babayan only)')
-    parser.add_argument('--ntrials_per_episode', type=int,
-        default=20, help='number of trials per episode')
     parser.add_argument('--reward_time', type=int,
         default=5, help='reward time (babayan only)')
+
+    # contingency task only
+    parser.add_argument('--session_type', type=str,
+        default='contingency',
+        options=['conditioning', 'degradation', 'cue-c'],
+        help='type of session to train on (for contingency task only)')
+    parser.add_argument('--ntrials', type=int,
+        default=1000,
+        help='number of trials (for contingency task only)')
     
     # model parameters
-    parser.add_argument('-m', '--rnn_mode', type=str,
-        default='value',
-        choices=['value', 'belief'],
-        help='which type of rnn to train')
     parser.add_argument('-r', '--recurrent_cell', type=str,
         default='GRU',
         choices=['GRU', 'RNN', 'LSTM'],
@@ -216,7 +231,6 @@ if __name__ == '__main__':
         type=int,
         default=100,
         help='number of hidden units in the rnn')
-    parser.add_argument('--extra_rnn', action='store_true')
     parser.add_argument('-s', '--sigma_noise',
         type=float,
         default=0.0,

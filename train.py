@@ -30,7 +30,7 @@ def pad_collate(batch):
     y = y.float()
     return X, y, x_lengths, trial_lengths, episode
 
-def make_dataloader(experiment, batch_size):
+def make_dataloader(experiment, batch_size=1):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
 def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None):
@@ -73,10 +73,20 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
     train_loss /= n
     return train_loss
 
-def train_model(model, dataloader, lr, nchances=4, epochs=5000,
-                print_every=1, save_hook=None, save_every=10,
-                test_dataloader=None, inactivation_indices=None):
+def train_model(model, dataloader=None,
+                experiment=None, batch_size=12, lr=0.003,
+                nchances=4, epochs=5000, print_every=1,
+                save_hook=None, save_every=10,
+                test_dataloader=None, test_experiment=None,
+                inactivation_indices=None):
     
+    if experiment is not None:
+        assert dataloader is None
+        dataloader = make_dataloader(experiment, batch_size=batch_size)
+    if test_experiment is not None:
+        assert test_dataloader is None
+        test_dataloader = make_dataloader(test_dataloader, batch_size=batch_size)
+
     loss_fn = nn.MSELoss(reduction='sum')
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
     
@@ -124,7 +134,10 @@ def train_model(model, dataloader, lr, nchances=4, epochs=5000,
         print(f"Done! Best loss: {best_score}")
         return scores, other_scores, weights
 
-def probe_model(model, dataloader, inactivation_indices=None):
+def probe_model(model, dataloader=None, experiment=None, inactivation_indices=None):
+    if experiment is not None:
+        assert dataloader is None
+        dataloader = make_dataloader(experiment, batch_size=1)
     trials = []
     model.prepare_to_gather_activity()
     with torch.no_grad():
