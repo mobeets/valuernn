@@ -8,7 +8,10 @@ Created on Mon Nov 28 13:16:12 2022
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+from tasks.trial import Trial, get_itis
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+device = torch.device('cpu')
 
 class Hollerman(Dataset):
     def __init__(self, 
@@ -40,18 +43,11 @@ class Hollerman(Dataset):
         if self.iti_max != 0 and self.iti_dist != 'uniform':
             raise Exception("Cannot set iti_max>0 unless iti_dist == 'uniform'")
             
-        isis = [self.rew_times[cond] for cond in range(self.nconds)]
-        if len(np.unique(isis)) < self.nconds:
-            raise Exception("Bin size is too coarse for provided reward times")
-            
     def make_trial(self, cond, iti):
         isi = self.rew_times[cond]
         if self.jitter > 0:
             isi += np.random.choice(np.arange(-self.jitter, self.jitter+1))
-        trial = np.zeros((iti + isi + 1 + self.t_padding, 1 + 1))
-        trial[iti, 0] = 1. # encode stimulus
-        trial[iti + isi, -1] = 1. # encode reward
-        return trial
+        return Trial(0, iti, isi, 1, True, 1, self.t_padding, self.include_reward, self.include_null_input)
     
     def make_trials(self, conds=None, ITIs=None):
         if conds is None:
@@ -64,52 +60,33 @@ class Hollerman(Dataset):
             self.conds = conds
         
         # ITI per trial
-        if ITIs is None:
-            # note: we subtract 1 b/c 1 is the min value returned by geometric
-            if self.iti_dist == 'geometric':
-                itis = np.random.geometric(p=self.iti_p, size=self.ntrials) - 1
-            elif self.iti_dist == 'uniform':
-                itis = np.random.choice(range(self.iti_max-self.iti_min+1), size=self.ntrials)
-            else:
-                raise Exception("Unrecognized ITI distribution")
-            self.ITIs = self.iti_min + itis
-        else:
-            self.ITIs = ITIs
+        self.ITIs = get_itis(self) if ITIs is None else ITIs
         
         # make trials
         self.trials = [self.make_trial(cond, iti) for cond, iti in zip(self.conds, self.ITIs)]
         
         # stack trials to make episodes
-        self.original_trials = self.trials
-        self.trials, self.trial_lengths = self.concatenate_trials(self.trials, self.ntrials_per_episode)
+        self.episodes = self.make_episode(self.trials, self.ntrials_per_episode)
     
-    def concatenate_trials(self, trials, ntrials_per_episode):
+    def make_episode(self, trials, ntrials_per_episode):
         # concatenate multiple trials in each episode
         episodes = []
-        trial_lengths = []
-        # for t in range(len(trials)-ntrials_per_episode+1):
         for t in np.arange(0, len(trials)-ntrials_per_episode+1, ntrials_per_episode):
-          ctrials = trials[t:(t+ntrials_per_episode)]
-          ctrial_lengths = [len(x) for x in ctrials]
-          trial_lengths.append(ctrial_lengths)
-          episode = np.vstack(ctrials)
-          episodes.append(episode)
-        return episodes, trial_lengths
+            episode = trials[t:(t+ntrials_per_episode)]
+
+            # add episode info
+            for ti, trial in enumerate(episode):
+                trial.index_in_episode = ti
+
+            episodes.append(episode)
+        return episodes
     
     def __getitem__(self, index):
-        X = self.trials[index][:,:-1]
-        y = self.trials[index][:,-1:]
-        trial_lengths = self.trial_lengths[index]
-        
-        # augment X with previous y
-        if self.include_reward:
-            X = np.hstack([X, y])
-        if self.include_null_input:
-            z = (X.sum(axis=1) == 0).astype(np.float)
-            X = np.hstack([X, z[:,None]])
-            assert np.all(np.sum(X, axis=1) == 1)
+        episode = self.episodes[index]
+        X = np.vstack([trial.X for trial in episode])
+        y = np.vstack([trial.y for trial in episode])
+        trial_lengths = [len(trial) for trial in episode]
+        return (torch.from_numpy(X).to(device), torch.from_numpy(y).to(device), trial_lengths, episode)
 
-        return (torch.from_numpy(X).to(device), torch.from_numpy(y).to(device), trial_lengths)
-    
     def __len__(self):
-        return len(self.trials)
+        return len(self.episodes)

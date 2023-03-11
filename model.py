@@ -12,143 +12,62 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence
 import gru_with_noise
+device = torch.device('cpu')
 
 #%%
 
 class ValueRNN(nn.Module):
     def __init__(self, input_size=4, output_size=1, hidden_size=1, 
                  num_layers=1, gamma=0.9, bias=False, learn_weights=False,
-                 predict_next_input=False, use_softmax_pre_value=False,
-                 recurrent_cell='GRU',
-                 sigma_noise=0.0, extra_rnn=False):
-      super(ValueRNN, self).__init__()
+                 recurrent_cell='GRU', sigma_noise=0.0):
+        super(ValueRNN, self).__init__()
 
-      self.gamma = gamma
-      self.input_size = input_size
-      self.output_size = output_size
-      self.hidden_size = hidden_size
-      self.num_layers = num_layers
-      self.recurrent_cell = recurrent_cell
-      self.extra_rnn = extra_rnn
+        self.gamma = gamma
+        self.input_size = input_size
+        self.output_size = output_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.recurrent_cell = recurrent_cell
+        self.kernel_initializer = 'glorot_uniform'
+        self.recurrent_initializer = 'orthogonal'
+        self.bias_regularizer = 'zeros'
 
-      if extra_rnn and recurrent_cell != 'GRU':
-          raise Exception("recurrent_cell must be GRU to have an extra RNN")
-      elif extra_rnn and sigma_noise > 0:
-          raise Exception("sigma_noise must be zero to have an extra RNN")
-      if recurrent_cell == 'GRU':
-          if sigma_noise > 0:
-              self.rnn = gru_with_noise.GRUWithNoise(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, sigma_noise=sigma_noise)
-          else:
-              self.rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
-          if extra_rnn:
-              self.rnn_extra = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
-      else:
-          if sigma_noise > 0:
-              raise Exception("recurrent_cell must be GRU to have sigma_noise > 0")
-          if recurrent_cell == 'RNN':
-              self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
-          elif recurrent_cell == 'LSTM':
-              self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
-          else:
-              raise Exception("recurrent_cell options: GRU, RNN, LSTM")
+        if recurrent_cell == 'GRU':
+            if sigma_noise > 0:
+                self.rnn = GRUWithNoise(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, sigma_noise=sigma_noise)
+            else:
+                self.rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
+            
+        else:
+            if sigma_noise > 0:
+                raise Exception("recurrent_cell must be GRU to have sigma_noise > 0")
+            if recurrent_cell == 'RNN':
+                self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
+            elif recurrent_cell == 'LSTM':
+                self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
+            else:
+                raise Exception("recurrent_cell options: GRU, RNN, LSTM")
 
-      if learn_weights:
-          self.value = nn.Linear(in_features=hidden_size + hidden_size*extra_rnn,
-                             out_features=output_size, bias=False)
-      else:
-          self.value = lambda x: torch.sum(x,2)[:,:,None]
-      self.predict_next_input = predict_next_input
-      if self.predict_next_input and output_size != input_size:
-          raise Exception("output_size must match input_size when predict_next_input == True")
-      if self.predict_next_input and not learn_weights:
-          raise Exception("learn_weights must be True when predict_next_input == True")
-      self.use_softmax_pre_value = use_softmax_pre_value
-      self.bias = nn.Parameter(torch.tensor([0.0]*output_size))
-      self.bias.requires_grad = bias
-      self.saved_weights = {}
-      self.reset()
+        if learn_weights:
+            self.value = nn.Linear(in_features=hidden_size + hidden_size,
+                                out_features=output_size, bias=False)
+        else:
+            self.value = lambda x: torch.sum(x,2)[:,:,None]
+        
+        self.bias = nn.Parameter(torch.tensor([0.0]*output_size))
+        self.bias.requires_grad = bias
+        self.saved_weights = {}
+        self.reset()
 
-    def forward(self, xin):
+    def forward(self, xin, inactivation_indices=None):
+        if inactivation_indices:
+            return self.forward_with_lesion(xin, inactivation_indices)
         x, hidden = self.rnn(xin)
-        if self.extra_rnn:
-            x2, hidden2 = self.rnn_extra(xin)
         if type(x) is torch.nn.utils.rnn.PackedSequence:
             x, output_lengths = pad_packed_sequence(x, batch_first=False)
-            if self.extra_rnn:
-                x2, output_lengths = pad_packed_sequence(x2, batch_first=False)
-        if self.extra_rnn:
-            x = torch.dstack([x, x2])
+        return self.bias + self.value(x), hidden
     
-        if self.predict_next_input:
-            # x = F.softmax(x, dim=-1)
-            x = self.bias + self.value(x)
-            # n.b. cross-entropy applies softmax, so we don't want that here
-            return x, hidden
-        else:
-            if self.use_softmax_pre_value:
-                x = F.softmax(x, dim=-1)
-            return self.bias + self.value(x), hidden
-    
-    def forward_with_lesion_inner(self, x, indices, first_rnn=True):
-        hs = []
-        cs = []
-        os = []
-        h_t = torch.zeros((1, x.shape[1], self.hidden_size))
-        if self.recurrent_cell == 'LSTM':
-            c_t = torch.zeros((1, x.shape[1], self.hidden_size))
-            send_cell = True
-        else:
-            send_cell = False
-        for x_t in x:
-            h_t_cur = (h_t, c_t) if send_cell else h_t
-            if first_rnn:
-                o_t, h_t = self.rnn(x_t[None,:], h_t_cur)
-            else:
-                assert(self.extra_rnn)
-                o_t, h_t = self.rnn_extra(x_t[None,:], h_t_cur)
-            if send_cell:
-                (h_t, c_t) = h_t
-            if len(h_t) == 0:
-                assert self.recurrent_cell == 'GRU' and self.rnn.sigma_noise > 0
-                h_t = o_t
-
-            if indices is not None:
-                for index in indices:
-                    if index > h_t.shape[-1]:
-                        raise Exception("Cannot lesions cell units in LSTM")
-                    h_t.data[:,:,index] = 0
-                    # n.b. can't lesion c_t in isolation b/c h_t depends on c_t
-            hs.append(h_t)
-            os.append(o_t)
-            if send_cell:
-                cs.append(c_t)                
-            
-        hs = torch.vstack(hs)
-        os = torch.vstack(os)
-        if send_cell:
-            cs = torch.vstack(cs)
-            hs = (hs, cs)
-        return hs, os
-    
-    def forward_with_lesion(self, x, indices):
-        inds = None if indices is None else [x for x in indices if x < self.hidden_size]
-        hs, os = self.forward_with_lesion_inner(x, inds)
-        if self.extra_rnn:
-            inds2 = None if indices is None else [x-self.hidden_size for x in indices if x-self.hidden_size>=0]
-            hs2, os2 = self.forward_with_lesion_inner(x, inds2)
-            hs = torch.dstack([hs, hs2])
-            os = torch.dstack([os, os2])
-            
-        if self.predict_next_input:
-            return self.bias + self.value(os), hs
-        else:
-            if self.use_softmax_pre_value:
-                os = F.softmax(os, dim=-1)
-            return self.bias + self.value(os), hs
-    
-    def forward_with_lesion_old(self, x, indices):
-        # note: valid for GRU only!
-        # assert self.recurrent_type == "GRU", "Inactivating units requires a GRU!"
+    def forward_with_lesion(self, x, indices=None):
         hs = []
         cs = []
         os = []
@@ -184,12 +103,7 @@ class ValueRNN(nn.Module):
             cs = torch.vstack(cs)
             hs = (hs, cs)
         
-        if self.predict_next_input:
-            return self.bias + self.value(os), hs
-        else:
-            if self.use_softmax_pre_value:
-                os = F.softmax(os, dim=-1)
-            return self.bias + self.value(os), hs
+        return self.bias + self.value(os), hs
 
     def freeze_weights(self, substr=None):
         for name, p in self.named_parameters():
@@ -228,7 +142,7 @@ class ValueRNN(nn.Module):
            if hasattr(layer, 'reset_parameters'):
                layer.reset_parameters()
         self.initial_weights = self.checkpoint_weights()
-
+               
     def checkpoint_weights(self):
         # self.saved_weights = deepcopy(self.state_dict())
         self.saved_weights = pickle.loads(pickle.dumps(self.state_dict()))
@@ -262,43 +176,112 @@ class ValueRNN(nn.Module):
 
 #%%
 
-class BeliefRNNUnit(nn.Module):
-    def __init__(self, input_size=10, hidden_size=10):
-        super(BeliefRNNUnit, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        
-        # linear weights
-        self.input_w = nn.Linear(self.input_size, self.hidden_size, bias=False)
-        self.transition_w = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
-        self.activation = nn.Sigmoid()
-        
-    def initialize_hidden_state(self):
-        h = torch.randn(self.hidden_size)
-        return F.softmax(h, dim=-1), h
-        
-    def process_input(self, x):
-        """
-        ≈ log(O @ o(t))
-        basically if we observe a given observation,
-        what log probabilities should we place on each state?
-        note that sum(O * o(t)) = 1
-        
-        part of the sigmoid function looks like a log, so maybe this will work
-        """
-        return self.activation(self.input_w(x))
-    
-    def process_transition(self, b):
-        """
-        ≈ log(T @ b(t-1))
-        """
-        return self.activation(self.transition_w(b))
+from torch.nn import RNNBase
+from torch.nn.utils.rnn import PackedSequence
+from torch import Tensor
+from typing import Tuple, Optional, overload
+from torch import _VF
 
-    def forward(self, x, tuple_in=None):
-        if tuple_in is not None:
-            (b_prev, h_prev) = tuple_in
+class GRUWithNoise(RNNBase):
+    def __init__(self, *args, **kwargs):
+        if 'sigma_noise' in kwargs:
+            self.sigma_noise = kwargs.pop('sigma_noise')
         else:
-            (b_prev, h_prev) = self.initialize_hidden_state()
-        h = self.process_input(x) + self.process_transition(b_prev)
-        b = F.softmax(h, dim=-1) # exponentiate and sum, so b is a probability
-        return b, h
+            self.sigma_noise = 0.0
+        super(GRUWithNoise, self).__init__('GRU', *args, **kwargs)
+
+    @overload  # type: ignore[override]
+    @torch._jit_internal._overload_method  # noqa: F811
+    def forward(self, input: Tensor, hx: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:  # noqa: F811
+        pass
+
+    @overload
+    @torch._jit_internal._overload_method  # noqa: F811
+    def forward(self, input: PackedSequence, hx: Optional[Tensor] = None) -> Tuple[PackedSequence, Tensor]:  # noqa: F811
+        pass
+
+    def forward(self, input, hx=None):  # noqa: F811
+        orig_input = input
+        # xxx: isinstance check needs to be in conditional for TorchScript to compile
+        if isinstance(orig_input, PackedSequence):
+            input, batch_sizes, sorted_indices, unsorted_indices = input
+            max_batch_size = batch_sizes[0]
+            max_batch_size = int(max_batch_size)
+        else:
+            batch_sizes = None
+            is_batched = input.dim() == 3
+            batch_dim = 0 if self.batch_first else 1
+            if not is_batched:
+                input = input.unsqueeze(batch_dim)
+                if hx is not None:
+                    if hx.dim() != 2:
+                        raise RuntimeError(
+                            f"For unbatched 2-D input, hx should also be 2-D but got {hx.dim()}-D tensor")
+                    hx = hx.unsqueeze(1)
+            else:
+                if hx is not None and hx.dim() != 3:
+                    raise RuntimeError(
+                        f"For batched 3-D input, hx should also be 3-D but got {hx.dim()}-D tensor")
+            max_batch_size = input.size(0) if self.batch_first else input.size(1)
+            sorted_indices = None
+            unsorted_indices = None
+
+        if hx is None:
+            num_directions = 2 if self.bidirectional else 1
+            hx = torch.zeros(self.num_layers * num_directions,
+                             max_batch_size, self.hidden_size,
+                             dtype=input.dtype, device=input.device)
+        else:
+            # Each batch of the hidden state should match the input sequence that
+            # the user believes he/she is passing in.
+            hx = self.permute_hidden(hx, sorted_indices)
+
+        self.check_forward_args(input, hx, batch_sizes)
+        
+        assert self.num_layers == 1, "Only one layer implemented"
+        hx = hx[0,:,:]
+        
+        if batch_sizes is None:
+            assert is_batched, "Only implemented for batched inputs"
+            assert not self.batch_first, "Not implemented for batch_first"
+            output = torch.zeros(
+                input.size(0), input.size(1), self.hidden_size,
+                dtype=input.dtype, device=input.device)
+            for seq_index in range(input.size(0)):
+                new_hx = _VF.gru_cell(
+                    input[seq_index,:,:],
+                    hx, self.weight_ih_l0, self.weight_hh_l0,
+                    self.bias_ih_l0, self.bias_hh_l0)
+                if self.sigma_noise > 0:
+                    # add noise to hidden units
+                    new_hx += self.sigma_noise * torch.randn_like(new_hx)
+                output[seq_index,:,:] = new_hx
+                hx = new_hx
+        else:
+            output = torch.zeros(
+                input.size(0), self.hidden_size,
+                dtype=input.dtype, device=input.device)
+            begin = 0
+            for batch in batch_sizes:
+                new_hx = _VF.gru_cell(
+                    input[begin: begin + batch],
+                    hx[0:batch], self.weight_ih_l0, self.weight_hh_l0,
+                    self.bias_ih_l0, self.bias_hh_l0)
+                if self.sigma_noise > 0:
+                    # add noise to hidden units
+                    new_hx += self.sigma_noise * torch.randn_like(new_hx)
+                output[begin: begin + batch] = new_hx
+                hx = new_hx
+                begin += batch
+
+        hidden = [] # I don't think we use this so who cares
+
+        # xxx: isinstance check needs to be in conditional for TorchScript to compile
+        if isinstance(orig_input, PackedSequence):
+            output_packed = PackedSequence(output, batch_sizes, sorted_indices, unsorted_indices)
+            return output_packed, [] #self.permute_hidden(hidden, unsorted_indices)
+        else:
+            if not is_batched:
+                output = output.squeeze(batch_dim)
+                # hidden = hidden.squeeze(1)
+            return output, []#self.permute_hidden(hidden, unsorted_indices)

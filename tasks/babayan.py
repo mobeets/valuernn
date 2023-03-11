@@ -8,7 +8,9 @@ Created on Wed Oct 19 13:55:18 2022
 import numpy as np 
 import torch
 from torch.utils.data import Dataset
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+from tasks.trial import Trial, get_itis
+# device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+device = torch.device('cpu')
 
 class Babayan(Dataset):
     def __init__(self, nblocks=(1000, 1000),
@@ -19,15 +21,18 @@ class Babayan(Dataset):
                 ntrials_per_episode=50,
                 iti_min=5, iti_p=1/8, iti_max=0, iti_dist='geometric',
                 t_padding=0, include_reward=True,
-                include_unique_rewards=True,
+                include_unique_rewards=False,
                 include_null_input=False):
         self.nblocks = nblocks
         self.ntrials_per_block = ntrials_per_block
+        assert len(np.unique(ntrials_per_block)) == 1
         self.ntrials = sum([x*y for x,y in zip(nblocks, ntrials_per_block)])
         self.reward_sizes_per_block = reward_sizes_per_block
         self.reward_times_per_block = reward_times_per_block
         self.jitter = jitter
         self.ntrials_per_episode = ntrials_per_episode
+        if self.ntrials_per_episode is None:
+            self.ntrials_per_episode = self.ntrials
         
         self.iti_min = iti_min
         self.iti_max = iti_max # n.b. only used if iti_dist == 'uniform'
@@ -36,6 +41,7 @@ class Babayan(Dataset):
         self.t_padding = t_padding
         self.include_reward = include_reward
         self.include_unique_rewards = include_unique_rewards
+        assert not self.include_unique_rewards
         self.include_null_input = include_null_input
         self.make_trials()
         if self.iti_max != 0 and self.iti_dist != 'uniform':
@@ -46,10 +52,8 @@ class Babayan(Dataset):
         isi = self.reward_times_per_block[block_index]
         if self.jitter > 0:
             isi += np.random.choice(np.arange(-self.jitter, self.jitter+1))
-        
-        trial = np.zeros((iti + isi + 1 + self.t_padding, 2))
-        trial[iti, 0] = 1.0 # encode stimulus
-        trial[iti + isi, -1] = rew # encode reward
+        trial = Trial(0, iti, isi, rew, True, 1, self.t_padding, self.include_reward, self.include_null_input)
+        trial.block_index = block_index
         return trial
     
     def make_trials(self, block_indices=None, ITIs=None):
@@ -66,60 +70,40 @@ class Babayan(Dataset):
             self.block_indices = block_indices
         
         # ITI per trial
-        if ITIs is None:
-            # note: we subtract 1 b/c 1 is the min value returned by geometric
-            if self.iti_dist == 'geometric':
-                itis = np.random.geometric(p=self.iti_p, size=self.ntrials) - 1
-            elif self.iti_dist == 'uniform':
-                itis = np.random.choice(range(self.iti_max-self.iti_min+1), size=self.ntrials)
-            else:
-                raise Exception("Unrecognized ITI distribution")
-            self.ITIs = self.iti_min + itis
-        else:
-            self.ITIs = ITIs
+        self.ITIs = get_itis(self) if ITIs is None else ITIs
         
         # make trials
         self.trials = [self.make_trial(block_index, iti) for block_index, iti in zip(self.block_indices, self.ITIs)]
         
         # stack trials to make episodes
-        self.original_trials = self.trials
-        self.trials, self.trial_lengths = self.concatenate_trials(self.trials, self.ntrials_per_episode)
+        self.episodes = self.make_episodes(self.trials, self.ntrials_per_episode)
     
-    def concatenate_trials(self, trials, ntrials_per_episode):
+    def make_episodes(self, trials, ntrials_per_episode):
         # concatenate multiple trials in each episode
         episodes = []
-        trial_lengths = []
-        # for t in range(len(trials)-ntrials_per_episode+1):
         for t in np.arange(0, len(trials)-ntrials_per_episode+1, ntrials_per_episode):
-          ctrials = trials[t:(t+ntrials_per_episode)]
-          ctrial_lengths = [len(x) for x in ctrials]
-          trial_lengths.append(ctrial_lengths)
-          episode = np.vstack(ctrials)
-          episodes.append(episode)
-        return episodes, trial_lengths
+            episode = trials[t:(t+ntrials_per_episode)]
+
+            # add episode info
+            ntrials_per_block = self.ntrials_per_block[0]
+            for ti, trial in enumerate(episode):
+                trial.index_in_episode = ti
+                trial.rel_trial_index = (trial.index_in_episode % ntrials_per_block)
+                if trial.index_in_episode > ntrials_per_block:
+                    trial.prev_block_index = trials[ti-ntrials_per_block].block_index
+                else:
+                    trial.prev_block_index = None
+
+            episodes.append(episode)
+        return episodes
     
     def __getitem__(self, index):
-        X = self.trials[index][:,:-1]
-        y = self.trials[index][:,-1:]
-        trial_lengths = self.trial_lengths[index]
-        
-        # augment X with previous y
-        if self.include_reward:
-            if self.include_unique_rewards:
-                # include one feature per unique reward quantity
-                rs = np.unique(self.reward_sizes_per_block)
-                y_uniq = np.zeros((y.shape[0], len(rs)))
-                for i,r in enumerate(rs):
-                    y_uniq[np.where(y == r)[0],i] = 1.
-                X = np.hstack([X, y_uniq])
-            else:
-                X = np.hstack([X, y])
-        if self.include_null_input:
-            z = (X.sum(axis=1) == 0).astype(np.float)
-            X = np.hstack([X, z[:,None]])
-            assert np.all(np.sum(X, axis=1) == 1)
+        episode = self.episodes[index]
+        X = np.vstack([trial.X for trial in episode])
+        y = np.vstack([trial.y for trial in episode])
+        trial_lengths = [len(trial) for trial in episode]
+        return (torch.from_numpy(X).to(device), torch.from_numpy(y).to(device), trial_lengths, episode)
 
-        return (torch.from_numpy(X).to(device), torch.from_numpy(y).to(device), trial_lengths)
-    
     def __len__(self):
-        return len(self.trials)
+        return len(self.episodes)
+
