@@ -11,7 +11,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence
-import gru_with_noise
 device = torch.device('cpu')
 
 #%%
@@ -49,8 +48,7 @@ class ValueRNN(nn.Module):
                 raise Exception("recurrent_cell options: GRU, RNN, LSTM")
 
         if learn_weights:
-            self.value = nn.Linear(in_features=hidden_size + hidden_size,
-                                out_features=output_size, bias=False)
+            self.value = nn.Linear(in_features=hidden_size, out_features=output_size, bias=False)
         else:
             self.value = lambda x: torch.sum(x,2)[:,:,None]
         
