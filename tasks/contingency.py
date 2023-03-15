@@ -8,7 +8,7 @@ Created on Mon Nov 21 15:31:01 2022
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from tasks.trial import Trial, get_itis
+from .trial import Trial, get_itis
 device = torch.device('cpu')
 
 class Contingency(Dataset):

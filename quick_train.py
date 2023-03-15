@@ -127,8 +127,7 @@ def main_inner(args, run_index):
     # train and save model
     scores, _, weights = train_model(model, dataloader, lr=args.lr,
                                         epochs=args.n_epochs,
-                                        save_hook=save_hook,
-                                        td_responses=None)
+                                        save_hook=save_hook)
     if len(scores) < args.n_epochs:
         print("WARNING: Model did not train for all epochs ({} of {}).".format(len(scores), args.n_epochs))
         return
@@ -216,7 +215,7 @@ if __name__ == '__main__':
     # contingency task only
     parser.add_argument('--session_type', type=str,
         default='contingency',
-        options=['conditioning', 'degradation', 'cue-c'],
+        choices=['conditioning', 'degradation', 'cue-c'],
         help='type of session to train on (for contingency task only)')
     parser.add_argument('--ntrials', type=int,
         default=1000,

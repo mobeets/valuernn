@@ -8,7 +8,7 @@ Created on Wed Oct 19 13:55:18 2022
 import numpy as np 
 import torch
 from torch.utils.data import Dataset
-from tasks.trial import Trial, get_itis
+from .trial import Trial, get_itis
 # device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 device = torch.device('cpu')
 

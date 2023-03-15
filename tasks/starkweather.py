@@ -9,7 +9,7 @@ import numpy as np
 import scipy.stats
 import torch
 from torch.utils.data import Dataset
-from tasks.trial import Trial, get_itis
+from .trial import Trial, get_itis
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 device = torch.device('cpu')
