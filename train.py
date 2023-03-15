@@ -176,7 +176,7 @@ def probe_model(model, dataloader=None, experiment=None, inactivation_indices=No
                 rpe = V_target - V_hat
                 
                 # add data to trial
-                trial = episode[j][i]
+                trial = deepcopy(episode[j][i])
                 trial.Z = Z
                 trial.value = V
                 trial.rpe = rpe
