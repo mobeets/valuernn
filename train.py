@@ -130,7 +130,8 @@ def train_model(model, dataloader=None,
         other_scores = np.array(other_scores)
         scores = scores[~np.isnan(scores)]
         model.restore_weights(best_weights)
-        save_hook(model, scores)
+        if save_hook is not None:
+            save_hook(model, scores)
         print(f"Done! Best loss: {best_score}")
         return scores, other_scores, weights
 
