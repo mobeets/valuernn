@@ -75,7 +75,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
 
 def train_model(model, dataloader=None,
                 experiment=None, batch_size=12, lr=0.003,
-                nchances=4, epochs=5000, print_every=1,
+                nchances=-1, epochs=5000, print_every=1,
                 save_hook=None, save_every=10,
                 test_dataloader=None, test_experiment=None,
                 inactivation_indices=None):
@@ -118,8 +118,8 @@ def train_model(model, dataloader=None,
                 best_score = scores[t+1]
                 best_weights = model.checkpoint_weights()
             if scores[t+1] > scores[t]:
-                if nsteps_increase > nchances:
-                    print("Stopping.")
+                if nchances > 0 and nsteps_increase > nchances:
+                    print("Stopping early.")
                     break
                 nsteps_increase += 1
             else:

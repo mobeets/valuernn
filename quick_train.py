@@ -127,6 +127,7 @@ def main_inner(args, run_index):
     # train and save model
     scores, _, weights = train_model(model, dataloader, lr=args.lr,
                                         epochs=args.n_epochs,
+                                        nchances=args.n_chances,
                                         save_hook=save_hook)
     if len(scores) < args.n_epochs:
         print("WARNING: Model did not train for all epochs ({} of {}).".format(len(scores), args.n_epochs))
@@ -246,8 +247,11 @@ if __name__ == '__main__':
         default=12,
         help='batch size when training')
     parser.add_argument('-e', '--n_epochs', type=int,
-        default=150,
+        default=300,
         help='number of epochs when training')
+    parser.add_argument('--n_chances', type=int,
+        default=-1,
+        help='number of epochs to allow loss to increase before stopping early (negative number means no early stopping)')
     
     args = parser.parse_args()
     main(args)
