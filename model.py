@@ -48,11 +48,6 @@ class ValueRNN(nn.Module):
             else:
                 raise Exception("recurrent_cell options: GRU, RNN, LSTM")
 
-        if predict_next_input:
-            if output_size != input_size:
-                raise Exception("output_size must match input_size when predict_next_input == True")
-            if not learn_weights:
-                raise Exception("learn_weights must be True when predict_next_input == True")
         if learn_weights:
             self.value = nn.Linear(in_features=hidden_size, out_features=output_size, bias=False)
         else:

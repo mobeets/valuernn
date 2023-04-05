@@ -33,7 +33,7 @@ def pad_collate(batch):
 def make_dataloader(experiment, batch_size=1):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
-def train_epoch(model, dataloader, loss_fn, optimizer=None, predict_next_input=False, inactivation_indices=None):
+def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None):
     if optimizer is None: # no gradient steps are taken
         model.eval()
     else:
@@ -42,18 +42,16 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, predict_next_input=F
     train_loss = 0
     n = 0
     for batch, (X, y, x_lengths, trial_lengths, episode) in enumerate(dataloader):
-        if predict_next_input:
-            X_next = X[1:,:,:]
         # handle sequences with different lengths
         X = pack_padded_sequence(X, x_lengths, enforce_sorted=False)
 
         # train TD learning
         V, _ = model(X, inactivation_indices)
 
-        if predict_next_input:
+        if model.predict_next_input:
             # predict next observation
             V_hat = V[:-1,:,:]
-            V_target = X_next
+            V_target = y[1:,:,:]
         else:
             # value estimate
             V_hat = V[:-1,:,:]
@@ -84,7 +82,6 @@ def train_model(model, dataloader=None,
                 experiment=None, batch_size=12, lr=0.003,
                 nchances=-1, epochs=5000, print_every=1,
                 save_hook=None, save_every=10,
-                predict_next_input=False, 
                 test_dataloader=None, test_experiment=None,
                 inactivation_indices=None):
     
@@ -95,7 +92,7 @@ def train_model(model, dataloader=None,
         assert test_dataloader is None
         test_dataloader = make_dataloader(test_dataloader, batch_size=batch_size)
 
-    if predict_next_input:
+    if model.predict_next_input:
         loss_fn = nn.CrossEntropyLoss()
     else:
         loss_fn = nn.MSELoss(reduction='sum')
@@ -114,7 +111,7 @@ def train_model(model, dataloader=None,
                 output = f"Epoch {t}, loss: {scores[t]:0.4f}"
                 other_score = ()
                 if test_dataloader is not None:
-                    test_score = train_epoch(model, test_dataloader, loss_fn, optimizer=None, predict_next_input=predict_next_input)
+                    test_score = train_epoch(model, test_dataloader, loss_fn, optimizer=None)
                     output += f', test loss: {test_score:0.4f}'
                     other_score += (test_score,)
                 other_scores.append(other_score)
@@ -122,7 +119,7 @@ def train_model(model, dataloader=None,
             if t % save_every == 0 and save_hook is not None:
                 save_hook(model, scores)
             scores[t+1] = train_epoch(model, dataloader, loss_fn, optimizer,
-                                      predict_next_input=predict_next_input, inactivation_indices=inactivation_indices)
+                                      inactivation_indices=inactivation_indices)
             weights.append(deepcopy(model.state_dict()))
             
             if scores[t+1] < best_score:
@@ -146,7 +143,7 @@ def train_model(model, dataloader=None,
         print(f"Done! Best loss: {best_score}")
         return scores, other_scores, weights
 
-def probe_model(model, dataloader=None, experiment=None, inactivation_indices=None, predict_next_input=False):
+def probe_model(model, dataloader=None, experiment=None, inactivation_indices=None):
     if experiment is not None:
         assert dataloader is None
         dataloader = make_dataloader(experiment, batch_size=1)
@@ -181,14 +178,14 @@ def probe_model(model, dataloader=None, experiment=None, inactivation_indices=No
                 t1 = t2
                 
                 # get rpe
-                if not predict_next_input:
+                if model.predict_next_input:
+                    rpe = None
+                else:
                     V_hat = V[:-1,:]
                     V_next = V[1:,:]
                     r = y[1:,:]
                     V_target = r + model.gamma*V_next
                     rpe = V_target - V_hat
-                else:
-                    rpe = None
                 
                 # add data to trial
                 trial = deepcopy(episode[j][i])
