@@ -52,7 +52,7 @@ class Trial:
         return self.trial_length
 
     def __str__(self):
-        return f'{self.cue=}, {self.iti=}, {self.isi=}, {self.index_in_episode=}, {self.trial_length=}'
+        return f'{self.cue=}, {self.iti=}, {self.isi=}, {self.reward_size=}, {self.index_in_episode=}, {self.trial_length=}'
     
     def __repr__(self):
         return f'{self.__class__.__name__}({self.__str__()})'
