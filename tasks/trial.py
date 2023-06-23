@@ -20,21 +20,22 @@ class Trial:
         self.reward_size = reward_size
         self.show_cue = show_cue
         self.ncues = ncues
+        self.nrewards = len(self.reward_size) if hasattr(self.reward_size, '__iter__') else 1
         self.t_padding = t_padding
         self.include_reward = include_reward
         self.include_null_input = include_null_input
-
+ 
         self.trial_index_in_episode = None
         self.make()
 
     def make(self):
-        trial = np.zeros((self.iti + self.isi + 1 + self.t_padding, self.ncues + 1))
+        trial = np.zeros((self.iti + self.isi + 1 + self.t_padding, self.ncues + self.nrewards))
         if self.show_cue: # encode stimulus
             trial[self.iti, self.cue] = 1.0
-        trial[self.iti + self.isi, -1] = self.reward_size
+        trial[self.iti + self.isi, -self.nrewards:] = self.reward_size
         
-        X = trial[:,:-1]
-        y = trial[:,-1:]
+        X = trial[:,:-self.nrewards]
+        y = trial[:,-self.nrewards:]
         if self.include_reward:
             X = np.hstack([X, y])
         if self.include_null_input:

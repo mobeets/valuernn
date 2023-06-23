@@ -43,6 +43,8 @@ class Babayan(Dataset):
         self.include_unique_rewards = include_unique_rewards
         assert not self.include_unique_rewards
         self.include_null_input = include_null_input
+        self.ncues = 1
+        self.nrewards = 1 # reward dimensionality (e.g., all rewards are water)
         self.make_trials()
         if self.iti_max != 0 and self.iti_dist != 'uniform':
             raise Exception("Cannot set iti_max>0 unless iti_dist == 'uniform'")

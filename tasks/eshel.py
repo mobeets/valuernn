@@ -48,6 +48,7 @@ class Eshel(Dataset):
 
         self.ncues_shown = sum(self.cue_shown)
         self.ncues = len(self.cue_probs)
+        self.nrewards = 1 # reward dimensionality (e.g., all rewards are water)
         self.ntrials_per_cue = np.round(np.array(self.cue_probs) * self.ntrials).astype(int)
         self.ntrials_per_episode = ntrials_per_episode
         

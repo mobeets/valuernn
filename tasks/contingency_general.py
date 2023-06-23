@@ -11,14 +11,13 @@ from torch.utils.data import Dataset
 from .trial import Trial, get_itis
 device = torch.device('cpu')
 
-class Contingency(Dataset):
-    def __init__(self, 
-                mode='conditioning',
-                rew_times=[9, 9, 9],
-                rew_sizes=[1, 1, 1],
-                # cue_shown=[True, True, False],
-                rew_probs=None, cue_shown=None,
-                cue_probs=[0.4, 0.2, 0.4],
+class ContingencyGeneral(Dataset):
+    def __init__(self,
+                cue_probs=[0.5, 0.5], # prop. of trials with each cue
+                rew_sizes=[[1,0], [0,1]], # reward sizes per cue
+                cue_visible_probs=[1.0, 1.0], # prop. of trials where cue is visible
+                rew_times=[9, 9], # reward time per cue
+                rew_probs=[1.0, 1.0], # probability of reward on a given trial
                 jitter=1,
                 ntrials=1000,
                 ntrials_per_episode=20,
@@ -30,33 +29,13 @@ class Contingency(Dataset):
         self.ntrials = ntrials
         self.cue_probs = cue_probs
         self.rew_sizes = rew_sizes
-        self.cue_shown = cue_shown
+        self.cue_visible_probs = cue_visible_probs
         self.jitter = jitter
-        self.mode = mode
         self.rew_times = rew_times
         self.rew_probs = rew_probs
-        if self.mode not in [None, 'conditioning', 'degradation', 'cue-c']:
-            raise Exception("Invalid mode. Must be one of [None, 'conditioning', 'degradation', 'cue-c']")
-        if self.mode is not None:
-            if self.rew_probs is not None or self.cue_shown is not None:
-                raise Exception("If setting mode, cannot set rew_probs or cue_shown")
-            else:
-                if self.mode.lower() == 'conditioning':
-                    self.rew_probs = [0.75, 0, 0]
-                    self.cue_shown = [True, True, False]
-                elif self.mode.lower() == 'degradation':
-                    self.rew_probs = [0.75, 0, 0.75]
-                    self.cue_shown = [True, True, False]
-                elif self.mode.lower() == 'cue-c':
-                    self.rew_probs = [0.75, 0, 0.75]
-                    self.cue_shown = [True, True, True]
-                else:
-                    raise Exception("Unrecognized mode")
-
-        assert self.rew_probs is not None
-        self.ncues_shown = sum(self.cue_shown)
+        
         self.ncues = len(self.cue_probs)
-        self.nrewards = 1 # reward dimensionality (e.g., all rewards are water)
+        self.nrewards = len(self.rew_sizes[0]) # reward dimensionality
         self.ntrials_per_cue = np.round(np.array(self.cue_probs) * self.ntrials).astype(int)
         self.ntrials_per_episode = ntrials_per_episode
         
@@ -70,8 +49,8 @@ class Contingency(Dataset):
         self.include_null_input = include_null_input
         self.omission_trials_have_duration = omission_trials_have_duration
         self.make_trials()
-        if not all(self.cue_shown) and not all([self.cue_shown[i] for i in range(self.cue_shown.index(False)-1)]):
-            raise Exception("All hidden cues must be listed last")
+        if len(set([len(rs) for rs in self.rew_sizes])) != 1:
+            raise Exception("rew_sizes must all have the same length (reward dimensionality)")
         if self.iti_max != 0 and self.iti_dist != 'uniform':
             raise Exception("Cannot set iti_max>0 unless iti_dist == 'uniform'")
             
@@ -87,7 +66,8 @@ class Contingency(Dataset):
         assert isi >= 0
         
         # n.b. including input for all cues, even if they're not shown
-        return Trial(cue, iti, isi, rew_size, self.cue_shown[cue], self.ncues, self.t_padding, self.include_reward, self.include_null_input)
+        cue_is_shown = np.random.rand() <= self.cue_visible_probs[cue]
+        return Trial(cue, iti, isi, rew_size, cue_is_shown, self.ncues, self.t_padding, self.include_reward, self.include_null_input)
     
     def make_trials(self, cues=None, ITIs=None):
         if cues is None:

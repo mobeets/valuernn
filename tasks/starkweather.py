@@ -24,6 +24,7 @@ class Starkweather(Dataset):
                  iti_min=0, iti_p=0.5, iti_max=0, iti_dist='geometric',
                  t_padding=0, half_reward_times=False):
         self.ncues = ncues
+        self.nrewards = 1 # reward dimensionality (e.g., all rewards are water)
         self.include_reward = include_reward
         self.iti_min = iti_min
         self.iti_max = iti_max # n.b. only used if iti_dist == 'uniform'
