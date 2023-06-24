@@ -10,7 +10,7 @@ E = ContingencyGeneral(ntrials=10000, ntrials_per_episode=20)
 #%% make model
 
 from model import ValueRNN
-hidden_size = 3 # number of hidden neurons
+hidden_size = 5 # number of hidden neurons
 
 import torch
 # gamma = torch.Tensor([0.9, 0.95]) # discount rate
@@ -37,18 +37,34 @@ plt.plot(scores), plt.xlabel('# epochs'), plt.ylabel('loss')
 # model.gamma = model.gamma.numpy()
 from train import probe_model
 E.ntrials_per_episode = E.ntrials
+E.jitter = 0
 E.make_trials() # create new (test) trials
 dataloader = make_dataloader(E, batch_size=12)
-responses = probe_model(model, dataloader)[1:]
+responses = probe_model(model, dataloader)#[1:]
 
 #%% plot value/rpe
 
-for trial in responses[:10]:
-    # plt.plot(trial.Z)#[(trial.iti-2):])
+plt.figure(figsize=(8,3))
+for c,trial in enumerate(responses[:20]):
     plt.subplot(1,E.ncues,trial.cue+1)
-    plt.plot(trial.value[(trial.iti-1):,0], 'r-')
-    plt.plot(trial.value[(trial.iti-1):,1], 'b-')
-    # plt.plot(trial.reward_size, trial.rpe[trial.iti+trial.isi-1:,1], '.')
-    # plt.plot(trial.rpe[trial.iti-1,0], trial.rpe[trial.iti-1,1], '.')
-    # plt.plot(trial.rpe[trial.iti+trial.isi-1:,0], trial.rpe[trial.iti+trial.isi-1:,1], '.')
-# plt.plot(plt.xlim(), plt.xlim(), 'k-')
+    t = trial.iti-2
+    # t = 0
+    plt.plot(trial.rpe[t:,0], 'r-', label='ND')
+    plt.plot(trial.rpe[t:,1], 'b-', label='D')
+    # plt.plot(np.abs(trial.rpe[t:,1] - trial.rpe[t:,0]), 'b-', label='D')
+    plt.ylim([-1, 1])
+    plt.xticks([1,10], ['cue' if trial.cue < 2 else '', 'reward'])
+    plt.xlabel('time')
+    plt.ylabel('RPE')
+    if trial.cue == 0:
+        plt.legend(['food population', 'water population'])
+        plt.title('ND cue')
+    elif trial.cue == 1:
+        plt.title('D cue')
+    else:
+        plt.title('No cue')
+
+plt.tight_layout()
+plt.show()
+
+# %%
