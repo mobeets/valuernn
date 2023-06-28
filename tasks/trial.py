@@ -13,7 +13,7 @@ def get_itis(self, ntrials=None):
     return self.iti_min + itis
 
 class Trial:
-    def __init__(self, cue, iti, isi, reward_size, show_cue, ncues, t_padding, include_reward, include_null_input):
+    def __init__(self, cue, iti, isi, reward_size, show_cue, ncues, t_padding=0, include_reward=True, include_null_input=False):
         self.cue = cue
         self.iti = iti
         self.isi = isi
