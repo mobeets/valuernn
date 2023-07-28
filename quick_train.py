@@ -115,9 +115,8 @@ def main_inner(args, run_index):
         bias=True,
         learn_weights=True,
         recurrent_cell=args.recurrent_cell,
-        sigma_noise=args.sigma_noise)
-    if args.initialization_gain > 0:
-        model.initialize(gain=args.initialization_gain)
+        sigma_noise=args.sigma_noise,
+        initialization_gain=args.initialization_gain)
     if args.pretrained_modelfile:
         print("Loading model weights for initialization...")
         model.load_weights_from_path(args.pretrained_modelfile)

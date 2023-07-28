@@ -18,7 +18,7 @@ device = torch.device('cpu')
 class ValueRNN(nn.Module):
     def __init__(self, input_size=1, output_size=1, hidden_size=1, 
                  num_layers=1, gamma=0.9, bias=True, learn_weights=True, predict_next_input=False,
-                 recurrent_cell='GRU', sigma_noise=0.0):
+                 recurrent_cell='GRU', sigma_noise=0.0, initialization_gain=None):
         super(ValueRNN, self).__init__()
 
         self.gamma = gamma
@@ -56,7 +56,8 @@ class ValueRNN(nn.Module):
         self.bias = nn.Parameter(torch.tensor([0.0]*output_size))
         self.bias.requires_grad = bias
         self.saved_weights = {}
-        self.reset()
+        self.initialization_gain = initialization_gain
+        self.reset(initialization_gain=self.initialization_gain)
 
     def forward(self, xin, inactivation_indices=None):
         if inactivation_indices:
@@ -135,11 +136,13 @@ class ValueRNN(nn.Module):
                 nonlinearity = 'tanh' if ((self.recurrent_cell.lower() == 'rnn') or (i == 2)) else 'sigmoid'
                 nn.init.xavier_uniform_(weight_ih.data[i:(i+self.hidden_size)], gain=nn.init.calculate_gain(nonlinearity)) # glorot_uniform
 
-    def reset(self):
+    def reset(self, initialization_gain=None):
         self.bias = nn.Parameter(torch.tensor(0.0))
         for layer in self.children():
            if hasattr(layer, 'reset_parameters'):
                layer.reset_parameters()
+        if initialization_gain is not None and initialization_gain != 0:
+            self.initialize(initialization_gain)
         self.initial_weights = self.checkpoint_weights()
                
     def checkpoint_weights(self):
