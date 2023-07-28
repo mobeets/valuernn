@@ -116,6 +116,8 @@ def main_inner(args, run_index):
         learn_weights=True,
         recurrent_cell=args.recurrent_cell,
         sigma_noise=args.sigma_noise)
+    if args.initialization_gain > 0:
+        model.initialize(gain=args.initialization_gain)
     if args.pretrained_modelfile:
         print("Loading model weights for initialization...")
         model.load_weights_from_path(args.pretrained_modelfile)
@@ -238,6 +240,9 @@ if __name__ == '__main__':
     parser.add_argument('-g', '--gamma', type=float,
         default=0.93,
         help='gamma (discount factor)')
+    parser.add_argument('--initialization_gain', type=float,
+        default=0,
+        help='initialization gain for recurrent cell')
     
     # training parameters
     parser.add_argument('-l', '--lr', type=float,
