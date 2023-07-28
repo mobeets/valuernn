@@ -105,6 +105,7 @@ def train_model(model, dataloader=None,
     nsteps_increase = 0
     other_scores = []
     weights = []
+    weights.append(deepcopy(model.state_dict()))
     try:
         for t in range(epochs):
             if t % print_every == 0:
