@@ -33,7 +33,7 @@ def pad_collate(batch):
 def make_dataloader(experiment, batch_size=1):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
-def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None):
+def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0):
     if optimizer is None: # no gradient steps are taken
         model.eval()
     else:
@@ -67,7 +67,14 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
 
         # Backpropagation
         if optimizer is not None:
-            optimizer.zero_grad()
+            if lmbda == 0:
+                # TD(0)
+                optimizer.zero_grad()
+            else:
+                # TD(λ)
+                for p in model.parameters():
+                    if p.grad is not None:
+                        p.grad *= model.gamma*lmbda
             loss.backward()
             optimizer.step()
 
@@ -79,7 +86,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
     return train_loss
 
 def train_model(model, dataloader=None,
-                experiment=None, batch_size=12, lr=0.003,
+                experiment=None, batch_size=12, lr=0.003, lmbda=0,
                 nchances=-1, epochs=5000, print_every=1,
                 save_hook=None, save_every=10,
                 test_dataloader=None, test_experiment=None,
@@ -99,7 +106,7 @@ def train_model(model, dataloader=None,
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
     
     scores = np.nan * np.ones((epochs+1,))
-    scores[0] = train_epoch(model, dataloader, loss_fn, None)
+    scores[0] = train_epoch(model, dataloader, loss_fn, None, lmbda=lmbda)
     best_score = scores[0]
     best_weights = model.checkpoint_weights()
     nsteps_increase = 0
@@ -185,7 +192,10 @@ def probe_model(model, dataloader=None, experiment=None, inactivation_indices=No
                     V_hat = V[:-1,:]
                     V_next = V[1:,:]
                     r = y[1:,:]
-                    V_target = r + model.gamma*V_next
+                    try:
+                        V_target = r + model.gamma*V_next
+                    except:
+                        V_target = r + model.gamma.numpy()*V_next
                     rpe = V_target - V_hat
                 
                 # add data to trial

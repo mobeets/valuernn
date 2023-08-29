@@ -6,7 +6,6 @@ Created on Wed Jun 28 2023
 @author: mobeets
 """
 import numpy as np
-import scipy.stats
 import torch
 from torch.utils.data import Dataset
 from .trial import Trial, get_itis

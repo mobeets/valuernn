@@ -15,10 +15,10 @@ from numpy.random import default_rng
 DEFAULT_REW_SIZES = [1, 2, 3, 5, 10, 20]
 class RewardDistibution:
     def __init__(self, rew_sizes=DEFAULT_REW_SIZES, rew_probs=None):
-        self.rew_sizes = rew_sizes
+        self.rew_sizes = np.array(rew_sizes)
         if rew_probs is None:
             rew_probs = np.ones(len(self.rew_sizes))/len(self.rew_sizes)
-        self.rew_probs = rew_probs / sum(rew_probs)
+        self.rew_probs = np.array(rew_probs) / sum(rew_probs)
         assert len(self.rew_sizes) == len(self.rew_probs)
         self.rng = default_rng()
 
