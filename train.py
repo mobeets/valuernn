@@ -192,10 +192,7 @@ def probe_model(model, dataloader=None, experiment=None, inactivation_indices=No
                     V_hat = V[:-1,:]
                     V_next = V[1:,:]
                     r = y[1:,:]
-                    try:
-                        V_target = r + model.gamma*V_next
-                    except:
-                        V_target = r + model.gamma.numpy()*V_next
+                    V_target = r + model.gamma*V_next
                     rpe = V_target - V_hat
                 
                 # add data to trial

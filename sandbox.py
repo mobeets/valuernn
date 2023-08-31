@@ -1,25 +1,32 @@
+#%% imports
+
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+mpl.rcParams['font.size'] = 12
+mpl.rcParams['figure.figsize'] = [3.0, 3.0]
+mpl.rcParams['figure.dpi'] = 300
+plt.rcParams['font.family'] = 'Helvetica'
+mpl.rcParams['axes.spines.right'] = False
+mpl.rcParams['axes.spines.top'] = False
+
 #%% make trials
 
-# from tasks.eshel import Eshel
-# E = Eshel(ntrials=10000, ntrials_per_episode=20,
-#           rew_times=[8], cue_shown=[True], cue_probs=[1])
+from tasks.contingency import Contingency
+E = Contingency(mode='garr2023', ntrials=10000, ntrials_per_episode=20)
 
-# from tasks.contingency_general import ContingencyGeneral
-# E = ContingencyGeneral(ntrials=10000, ntrials_per_episode=20)
-
-from tasks.blocking import Blocking, BlockingTrialLevel
-rew_size_fcn = lambda p: (p, 1-p, 1)
-rew_size_sampler = lambda: rew_size_fcn(np.random.random())
-E = BlockingTrialLevel(rew_size_sampler=rew_size_sampler)
+# from tasks.blocking import Blocking, BlockingTrialLevel
+# rew_size_fcn = lambda p: (p, 1-p, 1)
+# rew_size_sampler = lambda: rew_size_fcn(np.random.random())
+# E = BlockingTrialLevel(rew_size_sampler=rew_size_sampler)
 
 #%% make model
 
 from model import ValueRNN
-hidden_size = 3 # number of hidden neurons
+hidden_size = 50 # number of hidden neurons
 
 # import torch; gamma = torch.Tensor([0.9, 0.95]) # discount rate
 gamma = 0.93
-gamma = 0
 
 model = ValueRNN(input_size=E.ncues + E.nrewards*int(E.include_reward),
                  output_size=E.nrewards, hidden_size=hidden_size, gamma=gamma)
@@ -47,16 +54,20 @@ E.make_trials() # create new (test) trials
 dataloader = make_dataloader(E, batch_size=12)
 responses = probe_model(model, dataloader)#[1:]
 
-#%% plot value/rpe
+#%% plot value/rpe in Carr2023
+
+import numpy as np
 
 plt.figure(figsize=(8,3))
 for c,trial in enumerate(responses[:20]):
+    if trial.y.sum() == 0:
+        continue
     plt.subplot(1,E.ncues,trial.cue+1)
     t = trial.iti-2
     # t = 0
     plt.plot(trial.rpe[t:,0], 'r-', label='ND')
     plt.plot(trial.rpe[t:,1], 'b-', label='D')
-    # plt.plot(np.abs(trial.rpe[t:,1] - trial.rpe[t:,0]), 'b-', label='D')
+    plt.plot(np.abs(trial.rpe[t:,1] - trial.rpe[t:,0]), 'k-', label='|D-ND|')
     plt.ylim([-1, 1])
     plt.xticks([1,10], ['cue' if trial.cue < 2 else '', 'reward'])
     plt.xlabel('time')
@@ -68,9 +79,17 @@ for c,trial in enumerate(responses[:20]):
         plt.title('D cue')
     else:
         plt.title('No cue')
+plt.tight_layout()
+
+#%% Fig 7B of Carr et al., 2023
+
+f = lambda trial: np.abs(trial.rpe[:,1] - trial.rpe[:,0])
+
+plt.figure(figsize=(9,3))
+for i in range(4):
+    plt.subplot(1,4,i+1)
 
 plt.tight_layout()
-plt.show()
 
 #%%
 
