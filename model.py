@@ -146,7 +146,6 @@ class ValueRNN(nn.Module):
         self.initial_weights = self.checkpoint_weights()
                
     def checkpoint_weights(self):
-        # self.saved_weights = deepcopy(self.state_dict())
         self.saved_weights = pickle.loads(pickle.dumps(self.state_dict()))
         return self.saved_weights
         
