@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.random import default_rng
 
 def get_itis(self, ntrials=None):
     ntrials = ntrials if ntrials is not None else self.ntrials
@@ -11,6 +12,30 @@ def get_itis(self, ntrials=None):
     else:
         raise Exception("Unrecognized ITI distribution")
     return self.iti_min + itis
+
+class RewardAmountDistibution:
+    def __init__(self, rew_sizes, rew_probs=None):
+        self.rew_sizes = rew_sizes
+        if rew_probs is None:
+            rew_probs = np.ones(len(self.rew_sizes))/len(self.rew_sizes)
+        self.rew_probs = rew_probs / sum(rew_probs)
+        assert len(self.rew_sizes) == len(self.rew_probs)
+        self.rng = default_rng()
+
+    def sample(self):
+        return self.rng.choice(self.rew_sizes, p=self.rew_probs)
+
+class RewardTimingDistribution:
+    def __init__(self, rew_times, time_probs=None):
+        self.rew_times = rew_times
+        if time_probs is None:
+            time_probs = np.ones(len(self.rew_times))/len(self.rew_times)
+        self.time_probs = time_probs / sum(time_probs)
+        assert len(self.time_probs) == len(self.rew_times)
+        self.rng = default_rng()
+
+    def sample(self):
+        return self.rng.choice(self.rew_times, p=self.time_probs)
 
 class Trial:
     def __init__(self, cue, iti, isi, reward_size, show_cue, ncues, t_padding=0, include_reward=True, include_null_input=False):

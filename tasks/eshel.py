@@ -8,40 +8,17 @@ Created on Mon Nov 21 15:31:01 2022
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from .trial import Trial, get_itis
+from .trial import Trial, get_itis, RewardAmountDistibution, RewardTimingDistribution
 device = torch.device('cpu')
 from numpy.random import default_rng
 
 DEFAULT_REW_SIZES = [1, 2, 3, 5, 10, 20]
-class RewardDistibution:
-    def __init__(self, rew_sizes=DEFAULT_REW_SIZES, rew_probs=None):
-        self.rew_sizes = rew_sizes
-        if rew_probs is None:
-            rew_probs = np.ones(len(self.rew_sizes))/len(self.rew_sizes)
-        self.rew_probs = rew_probs / sum(rew_probs)
-        assert len(self.rew_sizes) == len(self.rew_probs)
-        self.rng = default_rng()
-
-    def sample(self):
-        return self.rng.choice(self.rew_sizes, p=self.rew_probs)
-
 DEFAULT_REW_TIMES = [8]
-class RewardTimingDistribution:
-    def __init__(self, rew_times=DEFAULT_REW_TIMES, time_probs=None):
-        self.rew_times = rew_times
-        if time_probs is None:
-            time_probs = np.ones(len(self.rew_times))/len(self.rew_times)
-        self.time_probs = time_probs / sum(time_probs)
-        assert len(self.time_probs) == len(self.rew_times)
-        self.rng = default_rng()
-
-    def sample(self):
-        return self.rng.choice(self.rew_times, p=self.time_probs)
 
 class Eshel(Dataset):
     def __init__(self, 
-                rew_size_distributions=[RewardDistibution(), RewardDistibution()],
-                rew_time_distibutions=[RewardTimingDistribution([8]), RewardTimingDistribution([8])],
+                rew_size_distributions=[RewardAmountDistibution(DEFAULT_REW_SIZES), RewardAmountDistibution(DEFAULT_REW_SIZES)],
+                rew_time_distibutions=[RewardTimingDistribution(DEFAULT_REW_TIMES), RewardTimingDistribution(DEFAULT_REW_TIMES)],
                 cue_shown=[True, False],
                 cue_probs=[0.5, 0.5],
                 jitter=1,
