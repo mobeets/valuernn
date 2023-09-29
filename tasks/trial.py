@@ -18,7 +18,7 @@ class RewardAmountDistibution:
         self.rew_sizes = rew_sizes
         if rew_probs is None:
             rew_probs = np.ones(len(self.rew_sizes))/len(self.rew_sizes)
-        self.rew_probs = rew_probs / sum(rew_probs)
+        self.rew_probs = np.array(rew_probs) / sum(rew_probs)
         assert len(self.rew_sizes) == len(self.rew_probs)
         self.rng = default_rng()
 
@@ -30,7 +30,7 @@ class RewardTimingDistribution:
         self.rew_times = rew_times
         if time_probs is None:
             time_probs = np.ones(len(self.rew_times))/len(self.rew_times)
-        self.time_probs = time_probs / sum(time_probs)
+        self.time_probs = np.array(time_probs) / sum(time_probs)
         assert len(self.time_probs) == len(self.rew_times)
         self.rng = default_rng()
 

@@ -107,3 +107,16 @@ class Eshel(Dataset):
     
     def __len__(self):
         return len(self.episodes)
+
+class Lowet(Eshel):
+    def __init__(self, *args, **kwargs):
+        none = RewardAmountDistibution([0], [1])
+        fixed = RewardAmountDistibution([4], [1])
+        vari = RewardAmountDistibution([2,6], [0.5,0.5])
+        rew_size_distributions = [none, none, fixed, fixed, vari, vari]
+        ncues = len(rew_size_distributions)
+        super().__init__(*args, **kwargs,
+            rew_size_distributions=rew_size_distributions,
+            rew_time_distibutions=[RewardTimingDistribution(DEFAULT_REW_TIMES)]*len(rew_size_distributions),
+            cue_shown=True*np.ones(ncues),
+            cue_probs=np.ones(ncues)/ncues)
