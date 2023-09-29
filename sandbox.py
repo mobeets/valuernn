@@ -12,8 +12,16 @@ mpl.rcParams['axes.spines.top'] = False
 
 #%% make trials
 
-from tasks.contingency import Contingency
-E = Contingency(mode='garr2023', ntrials=10000, ntrials_per_episode=20)
+from tasks.eshel import Eshel
+from tasks.trial import RewardAmountDistibution, RewardTimingDistribution
+E = Eshel(
+        rew_size_distributions=[RewardAmountDistibution([1])]*3,
+        rew_time_distibutions=[RewardTimingDistribution([7]), RewardTimingDistribution([9]), RewardTimingDistribution([11])],
+        cue_shown=[True]*3,
+        cue_probs=np.ones(3)/3,
+        jitter=1,
+        ntrials=20000,
+        ntrials_per_episode=20)
 
 # from tasks.blocking import Blocking, BlockingTrialLevel
 # rew_size_fcn = lambda p: (p, 1-p, 1)
@@ -35,82 +43,68 @@ print('model # parameters: {}'.format(model.n_parameters()))
 
 #%% train model
 
+epochs = 1
+batch_size = 12
 from train import make_dataloader, train_model
-dataloader = make_dataloader(E, batch_size=12)
-scores, _, weights = train_model(model, dataloader, lr=0.003, epochs=1000)
+dataloader = make_dataloader(E, batch_size=batch_size)
+scores, other_scores, weights = train_model(model, dataloader, lr=0.003, epochs=epochs)
 
 #%% plot loss
 
 import matplotlib.pyplot as plt
-plt.plot(scores), plt.xlabel('# epochs'), plt.ylabel('loss')
+# plt.plot(scores), plt.xlabel('# epochs')
+plt.plot(other_scores['batch_losses'][0]), plt.xlabel('# episodes')
+plt.ylabel('loss')
 
 #%% probe model
 
 # model.gamma = model.gamma.numpy()
 from train import probe_model
-# E.ntrials_per_episode = E.ntrials
+E.ntrials_per_episode = E.ntrials
 E.jitter = 0
 E.make_trials() # create new (test) trials
 dataloader = make_dataloader(E, batch_size=12)
-responses = probe_model(model, dataloader)#[1:]
+responses = probe_model(model, dataloader)[1:]
 
-#%% plot value/rpe in Carr2023
+#%% collect PSTHs per cue
 
 import numpy as np
+from sklearn.decomposition import PCA
 
-plt.figure(figsize=(8,3))
-for c,trial in enumerate(responses[:20]):
-    if trial.y.sum() == 0:
-        continue
-    plt.subplot(1,E.ncues,trial.cue+1)
-    t = trial.iti-2
-    # t = 0
-    plt.plot(trial.rpe[t:,0], 'r-', label='ND')
-    plt.plot(trial.rpe[t:,1], 'b-', label='D')
-    plt.plot(np.abs(trial.rpe[t:,1] - trial.rpe[t:,0]), 'k-', label='|D-ND|')
-    plt.ylim([-1, 1])
-    plt.xticks([1,10], ['cue' if trial.cue < 2 else '', 'reward'])
-    plt.xlabel('time')
-    plt.ylabel('RPE')
-    if trial.cue == 0:
-        plt.legend(['food population', 'water population'])
-        plt.title('ND cue')
-    elif trial.cue == 1:
-        plt.title('D cue')
-    else:
-        plt.title('No cue')
-plt.tight_layout()
+Z = np.vstack([trial.Z for trial in responses])
+pca = PCA(n_components=Z.shape[1])
+pca.fit(Z)
+# plt.plot(pca.explained_variance_ratio_[:10], '.-'), plt.ylim([0,1])
+n_pcs = 5
 
-#%% Fig 7B of Carr et al., 2023
+Zs = {}
+for cue in range(E.ncues):
+    V = np.dstack([trial.value[trial.iti:] for trial in responses if trial.cue == cue])
+    Z = np.dstack([pca.transform(trial.Z[trial.iti:])[:,:n_pcs] for trial in responses if trial.cue == cue])
 
-f = lambda trial: np.abs(trial.rpe[:,1] - trial.rpe[:,0])
-
-plt.figure(figsize=(9,3))
-for i in range(4):
-    plt.subplot(1,4,i+1)
-
-plt.tight_layout()
+    V = V.mean(axis=-1)
+    Z = Z.mean(axis=-1)
+    Zs[cue] = Z
 
 #%%
 
-cue_indices = [2]*10 + [0]*10 + [1]*10
-E.ntrials_per_episode = len(cue_indices)
-E.make_trials(cue_indices=cue_indices, rew_size_sampler=lambda: (1,0,1)) # create new (test) trials
-dataloader = make_dataloader(E, batch_size=12)
-responses = probe_model(model, dataloader)#[1:]
+import scipy.linalg
 
-# %%
+maxT = 8
+X = np.dstack([Zs[0][:maxT], Zs[2][:maxT]])
+X = X.reshape(X.shape[0]*X.shape[1], -1)
+X = np.hstack([X, np.ones(len(X))[:,None]])
+Y = Zs[1][:maxT].flatten()
+print(X.shape, Y.shape)
+w = scipy.linalg.lstsq(X, Y)[0]
+print(w)
+Yhat = X @ w
 
-ixf = lambda trial: trial.index_in_episode > 0 and trial.index_in_episode != E.ntrials_per_episode-1
-ixf = lambda trial: True
+def rsq(Y, Yhat):
+    top = Yhat - Y
+    bot = Y - Y.mean(axis=0)[None,:]
+    return 1 - np.diag(top.T @ top).sum()/np.diag(bot.T @ bot).sum()
 
-V = [trial.y.sum() for trial in responses if ixf(trial)]
-Vhat = np.vstack([trial.value for trial in responses if ixf(trial)])
-Z = np.vstack([trial.Z for trial in responses if ixf(trial)])
-
-t = 0
-N = 1000
-plt.plot(V[t:(t+N)], '.-')
-plt.plot(Vhat[t:(t+N)], '.-')
+print('R^2 = {:0.3f}'.format(rsq(Y[:,None], Yhat[:,None])))
 
 # %%

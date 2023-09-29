@@ -41,6 +41,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
 
     train_loss = 0
     n = 0
+    batch_losses = []
     for batch, (X, y, x_lengths, trial_lengths, episode) in enumerate(dataloader):
         # handle sequences with different lengths
         X = pack_padded_sequence(X, x_lengths, enforce_sorted=False)
@@ -81,9 +82,10 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
         loss = loss.item()
         
         train_loss += loss
+        batch_losses.append(loss)
         n += 1
     train_loss /= n
-    return train_loss
+    return train_loss, batch_losses
 
 def train_model(model, dataloader=None,
                 experiment=None, batch_size=12, lr=0.003, lmbda=0,
@@ -106,29 +108,31 @@ def train_model(model, dataloader=None,
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
     
     scores = np.nan * np.ones((epochs+1,))
-    scores[0] = train_epoch(model, dataloader, loss_fn, None, lmbda=lmbda)
+    batch_losses = []
+    scores[0], _ = train_epoch(model, dataloader, loss_fn, None, lmbda=lmbda)
     best_score = scores[0]
     best_weights = model.checkpoint_weights()
     nsteps_increase = 0
-    other_scores = []
+    test_scores = []
     weights = []
     weights.append(deepcopy(model.state_dict()))
     try:
         for t in range(epochs):
             if t % print_every == 0:
                 output = f"Epoch {t}, loss: {scores[t]:0.4f}"
-                other_score = ()
                 if test_dataloader is not None:
-                    test_score = train_epoch(model, test_dataloader, loss_fn, optimizer=None)
+                    test_score, _ = train_epoch(model, test_dataloader, loss_fn, optimizer=None)
                     output += f', test loss: {test_score:0.4f}'
-                    other_score += (test_score,)
-                other_scores.append(other_score)
+                else:
+                    test_score = ()
+                test_scores.append(test_score)
                 print(output)
             if t % save_every == 0 and save_hook is not None:
                 save_hook(model, scores)
-            scores[t+1] = train_epoch(model, dataloader, loss_fn, optimizer,
+            scores[t+1], batch_loss = train_epoch(model, dataloader, loss_fn, optimizer,
                                       inactivation_indices=inactivation_indices)
             weights.append(deepcopy(model.state_dict()))
+            batch_losses.append(batch_loss)
             
             if scores[t+1] < best_score:
                 best_score = scores[t+1]
@@ -143,13 +147,13 @@ def train_model(model, dataloader=None,
     except KeyboardInterrupt:
         pass
     finally:
-        other_scores = np.array(other_scores)
+        test_scores = np.array(test_scores)
         scores = scores[~np.isnan(scores)]
         model.restore_weights(best_weights)
         if save_hook is not None:
             save_hook(model, scores)
         print(f"Done! Best loss: {best_score}")
-        return scores, other_scores, weights
+        return scores, {'test_loss': test_scores, 'batch_losses': batch_losses}, weights
 
 def probe_model(model, dataloader=None, experiment=None, inactivation_indices=None):
     if experiment is not None:
