@@ -26,7 +26,6 @@ class Eshel(Dataset):
                 ntrials_per_episode=20,
                 iti_min=5, iti_p=1/8, iti_max=0, iti_dist='geometric',
                 t_padding=0, include_reward=True,
-                include_unique_rewards=True,
                 omission_trials_have_duration=True,
                 include_null_input=False):
         self.ntrials = ntrials
@@ -48,7 +47,6 @@ class Eshel(Dataset):
         self.iti_dist = iti_dist
         self.t_padding = t_padding
         self.include_reward = include_reward
-        self.include_unique_rewards = include_unique_rewards
         self.include_null_input = include_null_input
         self.omission_trials_have_duration = omission_trials_have_duration
         self.make_trials()

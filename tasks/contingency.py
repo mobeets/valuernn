@@ -34,7 +34,7 @@ class Contingency(Dataset):
         self.rew_times = rew_times
         self.rew_probs = rew_probs
         self.nrewards = 1 # reward dimensionality (e.g., all rewards are water)
-        if self.mode not in [None, 'conditioning', 'degradation', 'cue-c', 'garr2023']:
+        if self.mode not in [None, 'conditioning', 'degradation', 'cue-c', 'carr2023']:
             raise Exception("Invalid mode. Must be one of [None, 'conditioning', 'degradation', 'cue-c']")
         if self.mode is not None:
             if self.rew_probs is not None or self.cue_shown is not None or self.cue_probs is not None:
@@ -52,7 +52,7 @@ class Contingency(Dataset):
                     self.cue_probs = [0.4, 0.2, 0.4]
                     self.rew_probs = [0.75, 0, 0.75]
                     self.cue_shown = [True, True, True]
-                elif self.mode == 'garr2023':
+                elif self.mode == 'carr2023':
                     self.cue_probs = [0.33, 0.33, 0.34]
                     self.rew_sizes = [[1,0], [0,1], [0,1]]
                     self.nrewards = len(self.rew_sizes[0])
