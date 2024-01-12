@@ -59,7 +59,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import torch
 from train import make_dataloader, train_model, probe_model, train_model_step_by_step
-from model import ValueRNN
+from model import ValueSynapseRNN
 from tasks.inference import ValueInference
 
 corrSign = 'anti'
@@ -72,9 +72,10 @@ E = ValueInference(nblocks_per_episode=4, ntrials_per_block=12,
                 is_trial_level=True, ntrials_per_block_jitter=3,
                 reward_probs_per_block=reward_probs, reward_offset_if_trial_level=not rnn_is_synapses)
 
-model = ValueRNN(input_size=E.ncues + E.nrewards*int(E.include_reward),
+model = ValueSynapseRNN(input_size=E.ncues + E.nrewards*int(E.include_reward),
                  output_size=E.nrewards, hidden_size=E.ncues+1, gamma=0 if E.is_trial_level else 0.93,
-                 rnn_is_synapses=rnn_is_synapses, bias=False, synapse_count=10)
+                 learn_initial_state=True,
+                 bias=False, synapse_count=10)
 
 model.representation.weight.data *= 0
 for i in range(model.representation.weight.shape[1]):
@@ -84,7 +85,7 @@ model.representation.bias.data *= 0
 model.representation.bias.requires_grad = False
 
 dataloader = make_dataloader(E, batch_size=12)
-scores, other_scores, weights = train_model(model, dataloader, optimizer=None, epochs=100)
+scores, other_scores, weights = train_model(model, dataloader, optimizer=None, epochs=100, reward_is_offset=False)
 plt.plot(scores)
 
 #%% probe synapse model

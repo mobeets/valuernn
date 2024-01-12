@@ -33,7 +33,7 @@ def pad_collate(batch):
 def make_dataloader(experiment, batch_size=1):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
-def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.003, lmbda=0, inactivation_indices=None, print_every=1):
+def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.003, lmbda=0, inactivation_indices=None, print_every=1, reward_is_offset=True):
     if dataloader.batch_size != 1:
         raise Exception("batch_size must be 1 when training model step-by-step")
     
@@ -67,13 +67,13 @@ def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.0
                     if model.predict_next_input:
                         # predict next observation
                         vhat, h = model(X[i], h0=h)
-                        vtarget = y[i+1]
+                        vtarget = y[i+1 if reward_is_offset else i]
                         h = h.detach()
                     else:
                         # value estimate
                         vhats, hs = model(X[i:(i+2)], h0=h, return_hiddens=True)
                         vhat = vhats[0]
-                        vtarget = y[i if model.rnn_is_synapses else i+1] + model.gamma*vhats[1].detach()
+                        vtarget = y[i+1 if reward_is_offset else i] + model.gamma*vhats[1].detach()
                         h = hs[0].detach().unsqueeze(1)
                     loss = loss_fn(vhat, vtarget)
                     
@@ -97,9 +97,10 @@ def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.0
     except KeyboardInterrupt:
         pass
     finally:
+        raise
         return losses, {'episode_losses': episode_losses}, weights
 
-def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0):
+def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0, reward_is_offset=True):
     if optimizer is None: # no gradient steps are taken
         model.eval()
     else:
@@ -117,13 +118,13 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
 
         if model.predict_next_input:
             # predict next observation
-            V_hat = V[:-1,:,:]
-            V_target = y[1:,:,:]
+            V_hat = V[:-1,:,:] if reward_is_offset else V
+            V_target = y[1:,:,:] if reward_is_offset else y
         else:
             # value estimate
             V_hat = V[:-1,:,:]
             V_next = V[1:,:,:]
-            V_target = y[1:,:,:] + model.gamma*V_next.detach()
+            V_target = (y[1:,:,:] if reward_is_offset else y[:-1,:,:]) + model.gamma*V_next.detach()
 
         # do not compute loss on padded values
         loss = 0.0
@@ -156,6 +157,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
 def train_model(model, dataloader=None,
                 experiment=None, batch_size=12, lr=0.003, lmbda=0,
                 nchances=-1, epochs=5000, print_every=1,
+                reward_is_offset=True,
                 save_hook=None, save_every=10, optimizer=None,
                 test_dataloader=None, test_experiment=None,
                 inactivation_indices=None):
@@ -176,7 +178,8 @@ def train_model(model, dataloader=None,
     
     scores = np.nan * np.ones((epochs+1,))
     batch_losses = []
-    scores[0], _ = train_epoch(model, dataloader, loss_fn, None, lmbda=lmbda)
+    scores[0], _ = train_epoch(model, dataloader, loss_fn, None, lmbda=lmbda,
+                               reward_is_offset=reward_is_offset)
     best_score = scores[0]
     best_weights = model.checkpoint_weights()
     nsteps_increase = 0
@@ -188,7 +191,8 @@ def train_model(model, dataloader=None,
             if t % print_every == 0:
                 output = f"Epoch {t}, loss: {scores[t]:0.4f}"
                 if test_dataloader is not None:
-                    test_score, _ = train_epoch(model, test_dataloader, loss_fn, optimizer=None)
+                    test_score, _ = train_epoch(model, test_dataloader, loss_fn, optimizer=None,
+                                                reward_is_offset=reward_is_offset)
                     output += f', test loss: {test_score:0.4f}'
                 else:
                     test_score = ()
@@ -197,7 +201,8 @@ def train_model(model, dataloader=None,
             if t % save_every == 0 and save_hook is not None:
                 save_hook(model, scores)
             scores[t+1], batch_loss = train_epoch(model, dataloader, loss_fn, optimizer,
-                                      inactivation_indices=inactivation_indices)
+                                      inactivation_indices=inactivation_indices,
+                                      reward_is_offset=reward_is_offset)
             weights.append(deepcopy(model.state_dict()))
             batch_losses.append(batch_loss)
             

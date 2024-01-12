@@ -17,11 +17,11 @@ device = torch.device('cpu')
 
 class ValueRNN(nn.Module):
     def __init__(self, input_size=1, output_size=1, hidden_size=1, 
-                 num_layers=1, gamma=0.9, bias=True, learn_weights=True,
-                 learn_initial_state=False,
+                 num_layers=1, gamma=0.9, bias=True,
+                 learn_weights=True, learn_initial_state=False,
                  predict_next_input=False, recurrent_cell='GRU', sigma_noise=0.0,
-                 initialization_gain=None, rnn_is_synapses=False, synapse_count=None):
-        super(ValueRNN, self).__init__()
+                 initialization_gain=None):
+        super().__init__()
 
         self.gamma = gamma
         self.input_size = input_size
@@ -33,6 +33,7 @@ class ValueRNN(nn.Module):
         self.recurrent_initializer = 'orthogonal'
         self.bias_regularizer = 'zeros'
         self.predict_next_input = predict_next_input
+        self.sigma_noise = sigma_noise
 
         if recurrent_cell == 'GRU':
             if sigma_noise > 0:
@@ -41,6 +42,7 @@ class ValueRNN(nn.Module):
                 self.rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
             
         else:
+            assert sigma_noise == 0
             if sigma_noise > 0:
                 raise Exception("recurrent_cell must be GRU to have sigma_noise > 0")
             if recurrent_cell == 'RNN':
@@ -54,60 +56,20 @@ class ValueRNN(nn.Module):
             self.value = nn.Linear(in_features=hidden_size, out_features=output_size, bias=False)
         else:
             self.value = lambda x: torch.sum(x,2)[:,:,None]
+        self.learn_weights = learn_weights
         
         self.bias = nn.Parameter(torch.tensor([0.0]*output_size))
         self.learn_bias = bias
         self.bias.requires_grad = self.learn_bias
         self.initial_state = nn.Parameter(torch.zeros(hidden_size))
-        self.initial_state.requires_grad = self.learn_initial_state
+        self.initial_state.requires_grad = learn_initial_state
         self.learn_initial_state = learn_initial_state
-
-        self.rnn_is_synapses = rnn_is_synapses
-        if rnn_is_synapses:
-            assert output_size == 1
-            assert sigma_noise == 0
-            assert recurrent_cell == 'GRU'
-            assert learn_weights is True
-            assert bias is False
-            assert synapse_count is not None
-            self.representation = nn.Linear(in_features=input_size, out_features=hidden_size, bias=True)
-            self.rnn = nn.GRU(input_size=hidden_size, hidden_size=synapse_count, num_layers=num_layers)
-            self.initial_state = nn.Parameter(torch.zeros(synapse_count))
-            self.initial_state.requires_grad = self.learn_initial_state
-            self.value = nn.Linear(in_features=synapse_count, out_features=hidden_size, bias=True)
-            self.synapse_count = synapse_count
 
         self.saved_weights = {}
         self.initialization_gain = initialization_gain
         self.reset(initialization_gain=self.initialization_gain)
 
-    def forward_synapses(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
-        """ v(t) = w(t).dot(x(t)), and w(t) = f(x(t-1), w(t-1)) """
-        assert inactivation_indices is None
-        wasPacked = type(xin) is torch.nn.utils.rnn.PackedSequence
-        if wasPacked:
-            xin, x_lengths = pad_packed_sequence(xin, batch_first=False)
-        x = self.representation(xin) # ignore reward here
-
-        xinc = torch.clone(xin); xinc[:,:,-1] = 0; # remove reward
-        x_orig = self.representation(xinc) # representation ignoring reward
-
-        h0 = torch.tile(torch.unsqueeze(torch.unsqueeze(self.initial_state, 0), 0), (1,x.shape[1],1)) if h0 is None else h0
-        # x_orig = x
-        if wasPacked:
-            x = pack_padded_sequence(x, x_lengths, enforce_sorted=False)
-        w, hidden = self.rnn(x, hx=h0) # n.b. assumes x contains current reward
-        if type(w) is torch.nn.utils.rnn.PackedSequence:
-            w, _ = pad_packed_sequence(w, batch_first=False)
-        w = self.value(torch.vstack([h0, w])) + self.bias
-        v = torch.einsum('ijk,ijk->ij', x_orig, w[:-1]).unsqueeze(2)
-        if return_hiddens:
-            # only for GRU do we get full sequence of hiddens
-            # because only in GRU are the hiddens the same as the outputs
-            assert self.recurrent_cell == 'GRU'
-        return self.bias + v, (w if return_hiddens else hidden)
-
-    def forward_activation(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
+    def forward(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
         """ v(t) = w.dot(z(t)), and z(t) = f(x(t), z(t-1)) """
         if inactivation_indices:
             return self.forward_with_lesion(xin, inactivation_indices)
@@ -120,9 +82,6 @@ class ValueRNN(nn.Module):
             # because only in GRU are the hiddens the same as the outputs
             assert self.recurrent_cell == 'GRU'
         return self.bias + self.value(x), (x if return_hiddens else hidden)
-    
-    def forward(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
-        return self.forward_activation(xin, inactivation_indices, h0, return_hiddens) if not self.rnn_is_synapses else self.forward_synapses(xin, inactivation_indices, h0,return_hiddens)
     
     def forward_with_lesion(self, x, indices=None):
         hs = []
@@ -196,10 +155,7 @@ class ValueRNN(nn.Module):
     def reset(self, initialization_gain=None):
         self.bias = nn.Parameter(torch.tensor(0.0))
         self.bias.requires_grad = self.learn_bias
-        if self.rnn_is_synapses:
-            self.initial_state = nn.Parameter(torch.zeros(self.synapse_count))
-        else:
-            self.initial_state = nn.Parameter(torch.zeros(self.hidden_size))
+        self.initial_state = nn.Parameter(torch.zeros(self.hidden_size))
         self.initial_state.requires_grad = self.learn_initial_state
 
         for layer in self.children():
@@ -238,6 +194,60 @@ class ValueRNN(nn.Module):
         self.features = {}
         self.hook = self.get_features('hidden')
         self.handle = self.rnn.register_forward_hook(self.hook)
+
+#%%
+        
+class ValueSynapseRNN(ValueRNN):
+    def __init__(self, synapse_count=None, *args, **kwargs):
+        self.synapse_count = synapse_count
+        self.rnn_is_synapses = True
+        super().__init__(*args, **kwargs)
+
+        assert self.output_size == 1
+        assert self.sigma_noise == 0
+        assert self.recurrent_cell == 'GRU'
+        assert self.learn_weights is True
+        assert self.learn_bias is False
+        assert self.synapse_count is not None
+        assert self.recurrent_cell == 'GRU'
+
+        self.representation = nn.Linear(in_features=self.input_size, out_features=self.hidden_size, bias=True)
+        self.rnn = nn.GRU(input_size=self.hidden_size, hidden_size=synapse_count, num_layers=self.num_layers)
+        self.initial_state = nn.Parameter(torch.zeros(synapse_count))
+        self.initial_state.requires_grad = self.learn_initial_state
+        self.value = nn.Linear(in_features=synapse_count, out_features=self.hidden_size, bias=True)
+
+        self.reset(initialization_gain=self.initialization_gain)
+
+    def forward(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
+        """ v(t) = w(t).dot(x(t)), and w(t) = f(x(t-1), w(t-1)) """
+        assert inactivation_indices is None
+        wasPacked = type(xin) is torch.nn.utils.rnn.PackedSequence
+        if wasPacked:
+            xin, x_lengths = pad_packed_sequence(xin, batch_first=False)
+        x = self.representation(xin) # ignore reward here
+
+        xinc = torch.clone(xin); xinc[:,:,-1] = 0; # remove reward
+        x_orig = self.representation(xinc) # representation ignoring reward
+
+        h0 = torch.tile(torch.unsqueeze(torch.unsqueeze(self.initial_state, 0), 0), (1,x.shape[1],1)) if h0 is None else h0
+        # x_orig = x
+        if wasPacked:
+            x = pack_padded_sequence(x, x_lengths, enforce_sorted=False)
+        w, hidden = self.rnn(x, hx=h0) # n.b. assumes x contains current reward
+        if type(w) is torch.nn.utils.rnn.PackedSequence:
+            w, _ = pad_packed_sequence(w, batch_first=False)
+        w = self.value(torch.vstack([h0, w])) + self.bias
+        v = torch.einsum('ijk,ijk->ij', x_orig, w[:-1]).unsqueeze(2)
+        if return_hiddens:
+            # only for GRU do we get full sequence of hiddens
+            # because only in GRU are the hiddens the same as the outputs
+            assert self.recurrent_cell == 'GRU'
+        return self.bias + v, (w if return_hiddens else hidden)
+    
+    def reset(self, initialization_gain=None):
+        super().reset(initialization_gain=initialization_gain)
+        self.initial_state = nn.Parameter(torch.zeros(self.synapse_count))
 
 #%%
 
