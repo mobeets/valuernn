@@ -73,7 +73,7 @@ def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.0
                         # value estimate
                         vhats, hs = model(X[i:(i+2)], h0=h, return_hiddens=True)
                         vhat = vhats[0]
-                        vtarget = y[i+1] + model.gamma*vhats[1].detach()
+                        vtarget = y[i if model.rnn_is_synapses else i+1] + model.gamma*vhats[1].detach()
                         h = hs[0].detach().unsqueeze(1)
                     loss = loss_fn(vhat, vtarget)
                     

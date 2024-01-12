@@ -66,17 +66,43 @@ corrSign = 'anti'
 anticorr_reward_probs = {0: (0,1), 1: (1,0)}
 poscorr_reward_probs = {0: (0,1), 1: (0,1)}
 reward_probs = anticorr_reward_probs if corrSign == 'anti' else poscorr_reward_probs
-E = ValueInference(nblocks_per_episode=4, ntrials_per_block=8,
+
+rnn_is_synapses = True
+E = ValueInference(nblocks_per_episode=4, ntrials_per_block=12,
                 is_trial_level=True, ntrials_per_block_jitter=3,
-                reward_probs_per_block=reward_probs)
+                reward_probs_per_block=reward_probs, reward_offset_if_trial_level=not rnn_is_synapses)
 
 model = ValueRNN(input_size=E.ncues + E.nrewards*int(E.include_reward),
-                 output_size=E.nrewards, hidden_size=5, gamma=0.93,
-                 rnn_is_synapses=True)
+                 output_size=E.nrewards, hidden_size=E.ncues+1, gamma=0 if E.is_trial_level else 0.93,
+                 rnn_is_synapses=rnn_is_synapses, bias=False, synapse_count=10)
+
+model.representation.weight.data *= 0
+for i in range(model.representation.weight.shape[1]):
+    model.representation.weight.data[i,i] = 1
+model.representation.weight.requires_grad = False
+model.representation.bias.data *= 0
+model.representation.bias.requires_grad = False
 
 dataloader = make_dataloader(E, batch_size=12)
 scores, other_scores, weights = train_model(model, dataloader, optimizer=None, epochs=100)
 plt.plot(scores)
+
+#%% probe synapse model
+
+E.nblocks_per_episode = 1000; E.nepisodes = 1
+E.make_trials() # create new (test) trials
+dataloader = make_dataloader(E, batch_size=12)
+responses = probe_model(model, dataloader)#[1:]
+
+data = np.vstack([(trial.block_index, trial.cue, trial.y.sum(), trial.value[0,0]) for trial in responses])
+z = np.vstack([trial.Z for trial in responses])
+z = np.vstack([model.initial_state.detach().numpy(), z])
+W = model.value.weight.data.numpy()
+w = z @ W.T + model.value.bias.data.numpy()
+
+T=24
+h = plt.plot(w[:T,:2], '.-', alpha=0.3)
+print(data[:T])
 
 #%% make model
 
@@ -156,7 +182,7 @@ plt.figure(figsize=(6,3))
 clrs = plt.rcParams['axes.prop_cycle'].by_key()['color']
 for i, trial in enumerate(responses[:50]):
     v = trial.value[trial.iti]
-    rewarded = trial.y.sum() > 0 if not E.is_trial_level else responses[i+1].y.sum() > 0
+    rewarded = trial.y.sum() > 0 if not E.is_trial_level else (responses[i+1].y.sum() > 0 if E.reward_offset_if_trial_level else responses[i].y.sum())
     plt.plot(i, v, 'o' if rewarded else 'x', color=clrs[trial.cue], markersize=5)
     if trial.rel_trial_index == 0:
         plt.plot((i-0.5)*np.ones(2), [0,1], '-', color=clrs[-trial.block_index+1], alpha=0.2, zorder=-1)

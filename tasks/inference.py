@@ -26,7 +26,7 @@ class ValueInference(Dataset):
                 cue_probs=(0.5, 0.5),
                 jitter=0,
                 iti_min=5, iti_p=1/4, iti_max=0, iti_dist='geometric',
-                is_trial_level=False,
+                is_trial_level=False, reward_offset_if_trial_level=True,
                 t_padding=0, include_reward=True,
                 include_null_input=False):
         self.nepisodes = nepisodes
@@ -47,6 +47,7 @@ class ValueInference(Dataset):
         self.t_padding = t_padding
 
         self.is_trial_level = is_trial_level # n.b. ignores iti params, and reward_times_per_block
+        self.reward_offset_if_trial_level = reward_offset_if_trial_level
         if self.is_trial_level:
             self.iti_min = 0
             self.iti_max = 0
@@ -100,6 +101,8 @@ class ValueInference(Dataset):
                         # need to offset reward by one, both in X and y, since training learns r(t+1)
                         assert trial.trial_length == 1
                         r_cur = trial.y[0,0]
+                        if not self.reward_offset_if_trial_level:
+                            r_prev = r_cur
                         if self.include_reward:
                             trial.X[0,-1] = r_prev
                         trial.y[0,0] = r_prev
