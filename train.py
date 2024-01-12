@@ -33,6 +33,72 @@ def pad_collate(batch):
 def make_dataloader(experiment, batch_size=1):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
+def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.003, lmbda=0, inactivation_indices=None, print_every=1):
+    if dataloader.batch_size != 1:
+        raise Exception("batch_size must be 1 when training model step-by-step")
+    
+    if model.predict_next_input:
+        loss_fn = nn.CrossEntropyLoss()
+    else:
+        loss_fn = nn.MSELoss(reduction='sum')
+    if optimizer is None:
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
+
+    losses = []
+    weights = []
+    losses.append(np.nan)
+    weights.append(deepcopy(model.state_dict()))
+    assert inactivation_indices is None, 'inactivation_indices not implemented'
+    episode_losses = []
+
+    model.train()
+
+    try:
+        for k in range(epochs):
+            # n.b. we don't treat epochs as different from episodes
+            for j, (X, y, _, _, _) in enumerate(dataloader):
+
+                h = None
+                optimizer.zero_grad() # zero grad between episodes
+                cur_episode_losses = []
+                for i in range(len(X)-1):
+
+                    # forward pass
+                    if model.predict_next_input:
+                        # predict next observation
+                        vhat, h = model(X[i], h0=h)
+                        vtarget = y[i+1]
+                        h = h.detach()
+                    else:
+                        # value estimate
+                        vhats, hs = model(X[i:(i+2)], h0=h, return_hiddens=True)
+                        vhat = vhats[0]
+                        vtarget = y[i+1] + model.gamma*vhats[1].detach()
+                        h = hs[0].detach().unsqueeze(1)
+                    loss = loss_fn(vhat, vtarget)
+                    
+                    if lmbda == 0:
+                        # TD(0)
+                        optimizer.zero_grad()
+                    else:
+                        # TD(λ)
+                        for p in model.parameters():
+                            if p.grad is not None:
+                                p.grad *= model.gamma*lmbda
+
+                    loss.backward()
+                    optimizer.step()
+                    cur_episode_losses.append(loss.item())
+
+                episode_losses.append(cur_episode_losses)
+                losses.append(np.mean(cur_episode_losses))
+                if j % print_every == 0:
+                    print('Episode {}, loss: {:0.3f}'.format(len(losses), losses[-1]))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        return losses, {'episode_losses': episode_losses}, weights
+
 def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0):
     if optimizer is None: # no gradient steps are taken
         model.eval()
@@ -90,7 +156,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
 def train_model(model, dataloader=None,
                 experiment=None, batch_size=12, lr=0.003, lmbda=0,
                 nchances=-1, epochs=5000, print_every=1,
-                save_hook=None, save_every=10,
+                save_hook=None, save_every=10, optimizer=None,
                 test_dataloader=None, test_experiment=None,
                 inactivation_indices=None):
     
@@ -105,7 +171,8 @@ def train_model(model, dataloader=None,
         loss_fn = nn.CrossEntropyLoss()
     else:
         loss_fn = nn.MSELoss(reduction='sum')
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
+    if optimizer is None:
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
     
     scores = np.nan * np.ones((epochs+1,))
     batch_losses = []

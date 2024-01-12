@@ -10,15 +10,16 @@ import pickle
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.utils.rnn import pad_packed_sequence
+from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 device = torch.device('cpu')
 
 #%%
 
 class ValueRNN(nn.Module):
     def __init__(self, input_size=1, output_size=1, hidden_size=1, 
-                 num_layers=1, gamma=0.9, bias=True, learn_weights=True, predict_next_input=False,
-                 recurrent_cell='GRU', sigma_noise=0.0, initialization_gain=None):
+                 num_layers=1, gamma=0.9, bias=True, learn_weights=True,
+                 predict_next_input=False, recurrent_cell='GRU', sigma_noise=0.0,
+                 initialization_gain=None, rnn_is_synapses=False):
         super(ValueRNN, self).__init__()
 
         self.gamma = gamma
@@ -48,6 +49,14 @@ class ValueRNN(nn.Module):
             else:
                 raise Exception("recurrent_cell options: GRU, RNN, LSTM")
 
+        self.rnn_is_synapses = rnn_is_synapses
+        if rnn_is_synapses:
+            assert output_size == 1
+            assert sigma_noise == 0
+            assert recurrent_cell == 'GRU'
+            self.representation = nn.Linear(in_features=input_size, out_features=hidden_size, bias=True)
+            self.rnn = nn.GRU(input_size=hidden_size, hidden_size=hidden_size, num_layers=num_layers)
+
         if learn_weights:
             self.value = nn.Linear(in_features=hidden_size, out_features=output_size, bias=False)
         else:
@@ -59,13 +68,45 @@ class ValueRNN(nn.Module):
         self.initialization_gain = initialization_gain
         self.reset(initialization_gain=self.initialization_gain)
 
-    def forward(self, xin, inactivation_indices=None):
+    def forward_synapses(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
+        """ v(t) = w(t).dot(x(t)), and w(t) = f(x(t-1), w(t-1)) """
+        assert inactivation_indices is None
+        wasPacked = type(xin) is torch.nn.utils.rnn.PackedSequence
+        if wasPacked:
+            xin, x_lengths = pad_packed_sequence(xin, batch_first=False)
+        x = self.representation(xin)
+        h0 = torch.zeros(1, x.shape[1], self.hidden_size) if h0 is None else h0
+        x_orig = x
+        if wasPacked:
+            x = pack_padded_sequence(x, x_lengths, enforce_sorted=False)
+        w, hidden = self.rnn(x, hx=h0)
+        if type(w) is torch.nn.utils.rnn.PackedSequence:
+            w, _ = pad_packed_sequence(w, batch_first=False)
+        w = torch.vstack([h0, w])
+        v = torch.einsum('ijk,ijk->ij', x_orig, w[:-1]).unsqueeze(2)
+        # v = torch.einsum('ijk,ijk->ij', x_orig, w[1:]).unsqueeze(2)
+        if return_hiddens:
+            # only for GRU do we get full sequence of hiddens
+            # because only in GRU are the hiddens the same as the outputs
+            assert self.recurrent_cell == 'GRU'
+        return self.bias + v, (w if return_hiddens else hidden)
+
+    def forward_activation(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
+        """ v(t) = w.dot(z(t)), and z(t) = f(x(t), z(t-1)) """
         if inactivation_indices:
             return self.forward_with_lesion(xin, inactivation_indices)
-        x, hidden = self.rnn(xin)
+        x, hidden = self.rnn(xin, hx=h0)
         if type(x) is torch.nn.utils.rnn.PackedSequence:
-            x, output_lengths = pad_packed_sequence(x, batch_first=False)
-        return self.bias + self.value(x), hidden
+            x, _ = pad_packed_sequence(x, batch_first=False)
+
+        if return_hiddens:
+            # only for GRU do we get full sequence of hiddens
+            # because only in GRU are the hiddens the same as the outputs
+            assert self.recurrent_cell == 'GRU'
+        return self.bias + self.value(x), (x if return_hiddens else hidden)
+    
+    def forward(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
+        return self.forward_activation(xin, inactivation_indices, h0, return_hiddens) if not self.rnn_is_synapses else self.forward_synapses(xin, inactivation_indices, h0,return_hiddens)
     
     def forward_with_lesion(self, x, indices=None):
         hs = []

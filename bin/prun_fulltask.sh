@@ -8,7 +8,7 @@
 #SBATCH -e logs/pytorch_%A_%a.err # Standard error (jobid and array index)
 
 # Load software modules and source conda environment
-module load python/3.8.5-fasrc01
+module load python/3.10.12-fasrc01
 source activate pt38
 
 # Run program
