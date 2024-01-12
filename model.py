@@ -153,10 +153,8 @@ class ValueRNN(nn.Module):
                 nn.init.xavier_uniform_(weight_ih.data[i:(i+self.hidden_size)], gain=nn.init.calculate_gain(nonlinearity)) # glorot_uniform
 
     def reset(self, initialization_gain=None):
-        self.bias = nn.Parameter(torch.tensor(0.0))
-        self.bias.requires_grad = self.learn_bias
-        self.initial_state = nn.Parameter(torch.zeros(self.hidden_size))
-        self.initial_state.requires_grad = self.learn_initial_state
+        self.bias.data *= 0
+        self.initial_state.data *= 0
 
         for layer in self.children():
            if hasattr(layer, 'reset_parameters'):
@@ -198,24 +196,32 @@ class ValueRNN(nn.Module):
 #%%
         
 class ValueSynapseRNN(ValueRNN):
-    def __init__(self, synapse_count=None, *args, **kwargs):
-        self.synapse_count = synapse_count
-        self.rnn_is_synapses = True
+    def __init__(self, representation_size=None, learn_representation=False, *args, **kwargs):
+        self.representation_size = representation_size
+        self.learn_representation = learn_representation
         super().__init__(*args, **kwargs)
 
         assert self.output_size == 1
         assert self.sigma_noise == 0
         assert self.recurrent_cell == 'GRU'
         assert self.learn_weights is True
-        assert self.learn_bias is False
-        assert self.synapse_count is not None
+        assert self.representation_size is not None
         assert self.recurrent_cell == 'GRU'
 
-        self.representation = nn.Linear(in_features=self.input_size, out_features=self.hidden_size, bias=True)
-        self.rnn = nn.GRU(input_size=self.hidden_size, hidden_size=synapse_count, num_layers=self.num_layers)
-        self.initial_state = nn.Parameter(torch.zeros(synapse_count))
+        self.representation = nn.Linear(in_features=self.input_size,
+                                        out_features=self.representation_size,
+                                        bias=True)
+        self.representation.weight.requires_grad = self.learn_representation
+        self.representation.bias.requires_grad = self.learn_representation
+
+        self.rnn = nn.GRU(input_size=self.representation_size,
+                          hidden_size=self.hidden_size,
+                          num_layers=self.num_layers)
+        self.initial_state = nn.Parameter(torch.zeros(self.hidden_size))
         self.initial_state.requires_grad = self.learn_initial_state
-        self.value = nn.Linear(in_features=synapse_count, out_features=self.hidden_size, bias=True)
+        self.value = nn.Linear(in_features=self.hidden_size,
+                               out_features=self.representation_size,
+                               bias=True)
 
         self.reset(initialization_gain=self.initialization_gain)
 
@@ -237,7 +243,7 @@ class ValueSynapseRNN(ValueRNN):
         w, hidden = self.rnn(x, hx=h0) # n.b. assumes x contains current reward
         if type(w) is torch.nn.utils.rnn.PackedSequence:
             w, _ = pad_packed_sequence(w, batch_first=False)
-        w = self.value(torch.vstack([h0, w])) + self.bias
+        w = self.value(torch.vstack([h0, w]))
         v = torch.einsum('ijk,ijk->ij', x_orig, w[:-1]).unsqueeze(2)
         if return_hiddens:
             # only for GRU do we get full sequence of hiddens
@@ -247,7 +253,10 @@ class ValueSynapseRNN(ValueRNN):
     
     def reset(self, initialization_gain=None):
         super().reset(initialization_gain=initialization_gain)
-        self.initial_state = nn.Parameter(torch.zeros(self.synapse_count))
+        if hasattr(self, 'representation'): # if not, we are in parent constructor
+            self.representation.bias.data *= 0
+            self.value.bias.data *= 0
+        self.initial_weights = self.checkpoint_weights()
 
 #%%
 

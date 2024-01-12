@@ -226,7 +226,7 @@ def train_model(model, dataloader=None,
         print(f"Done! Best loss: {best_score}")
         return scores, {'test_loss': test_scores, 'batch_losses': batch_losses}, weights
 
-def probe_model(model, dataloader=None, experiment=None, inactivation_indices=None):
+def probe_model(model, dataloader=None, experiment=None, inactivation_indices=None, reward_is_offset=True):
     if experiment is not None:
         assert dataloader is None
         dataloader = make_dataloader(experiment, batch_size=1)
@@ -266,7 +266,7 @@ def probe_model(model, dataloader=None, experiment=None, inactivation_indices=No
                 else:
                     V_hat = V[:-1,:]
                     V_next = V[1:,:]
-                    r = y[1:,:]
+                    r = y[1:,:] if reward_is_offset else y[:-1,:]
                     V_target = r + model.gamma*V_next
                     rpe = V_target - V_hat
                 

@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import torch
 from train import make_dataloader, train_model, probe_model, train_model_step_by_step
-from model import ValueRNN
+from model import ValueRNN, ValueSynapseRNN
+from tasks.inference import ValueInference
 
 mpl.rcParams['font.size'] = 12
 mpl.rcParams['figure.figsize'] = [3.0, 3.0]
@@ -15,34 +16,6 @@ mpl.rcParams['axes.spines.right'] = False
 mpl.rcParams['axes.spines.top'] = False
 
 #%% make trials
-
-# from tasks.eshel import Eshel
-# from tasks.starkweather import Starkweather
-# from tasks.trial import RewardAmountDistibution, RewardTimingDistribution
-
-# E = Starkweather(ncues=4, ntrials_per_cue=10000, ntrials_per_episode=20,
-#                  iti_min=5, iti_p=0.25)
-
-# rew_times =   [  7, 11]
-# cue_probs_1 = [0.5, 0.5]
-# E = Eshel(
-#     rew_size_distributions=[RewardAmountDistibution([1])]*len(rew_times),
-#     rew_time_distibutions=[RewardTimingDistribution([r]) for r in rew_times],
-#     cue_shown=[True]*len(rew_times),
-#     cue_probs=cue_probs_1,
-#     iti_p=0.5,
-#     jitter=0,
-#     ntrials=1000,
-#     ntrials_per_episode=20)
-
-# from tasks.blocking import Blocking, BlockingTrialLevel
-# rew_size_fcn = lambda p: (p, 1-p, 1)
-# rew_size_sampler = lambda: rew_size_fcn(np.random.random())
-# E = BlockingTrialLevel(rew_size_sampler=rew_size_sampler)
-
-#%% make trials
-
-from tasks.inference import ValueInference
 
 corrSign = 'anti'
 anticorr_reward_probs = {0: (0,1), 1: (1,0)}
@@ -54,35 +27,17 @@ E = ValueInference(nblocks_per_episode=4, ntrials_per_block=8,
 
 #%% synapse model
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import torch
-from train import make_dataloader, train_model, probe_model, train_model_step_by_step
-from model import ValueSynapseRNN
-from tasks.inference import ValueInference
-
-corrSign = 'anti'
-anticorr_reward_probs = {0: (0,1), 1: (1,0)}
-poscorr_reward_probs = {0: (0,1), 1: (0,1)}
-reward_probs = anticorr_reward_probs if corrSign == 'anti' else poscorr_reward_probs
-
-rnn_is_synapses = True
-E = ValueInference(nblocks_per_episode=4, ntrials_per_block=12,
-                is_trial_level=True, ntrials_per_block_jitter=3,
-                reward_probs_per_block=reward_probs, reward_offset_if_trial_level=not rnn_is_synapses)
-
+E.reward_offset_if_trial_level=False; E.make_trials()
 model = ValueSynapseRNN(input_size=E.ncues + E.nrewards*int(E.include_reward),
-                 output_size=E.nrewards, hidden_size=E.ncues+1, gamma=0 if E.is_trial_level else 0.93,
-                 learn_initial_state=True,
-                 bias=False, synapse_count=10)
+                        hidden_size=E.ncues,
+                        output_size=E.nrewards,
+                        representation_size=E.ncues + 1,
+                        gamma=0 if E.is_trial_level else 0.93,
+                        learn_initial_state=True, bias=True)
 
 model.representation.weight.data *= 0
 for i in range(model.representation.weight.shape[1]):
     model.representation.weight.data[i,i] = 1
-model.representation.weight.requires_grad = False
-model.representation.bias.data *= 0
-model.representation.bias.requires_grad = False
 
 dataloader = make_dataloader(E, batch_size=12)
 scores, other_scores, weights = train_model(model, dataloader, optimizer=None, epochs=100, reward_is_offset=False)
@@ -93,16 +48,17 @@ plt.plot(scores)
 E.nblocks_per_episode = 1000; E.nepisodes = 1
 E.make_trials() # create new (test) trials
 dataloader = make_dataloader(E, batch_size=12)
-responses = probe_model(model, dataloader)#[1:]
+responses = probe_model(model, dataloader)
 
 data = np.vstack([(trial.block_index, trial.cue, trial.y.sum(), trial.value[0,0]) for trial in responses])
 z = np.vstack([trial.Z for trial in responses])
 z = np.vstack([model.initial_state.detach().numpy(), z])
-W = model.value.weight.data.numpy()
-w = z @ W.T + model.value.bias.data.numpy()
+with torch.no_grad():
+    w = (model.value(torch.tensor(z)) + model.bias).numpy()
 
-T=24
+T = 24
 h = plt.plot(w[:T,:2], '.-', alpha=0.3)
+h = plt.plot(data[:T,-1], '.', alpha=0.5)
 print(data[:T])
 
 #%% make model
