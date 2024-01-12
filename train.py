@@ -97,7 +97,6 @@ def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.0
     except KeyboardInterrupt:
         pass
     finally:
-        raise
         return losses, {'episode_losses': episode_losses}, weights
 
 def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0, reward_is_offset=True):
