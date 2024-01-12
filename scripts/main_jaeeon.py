@@ -17,21 +17,23 @@ mpl.rcParams['axes.spines.top'] = False
 
 #%% make trials
 
+is_trial_level = True
 corrSign = 'anti'
+
 anticorr_reward_probs = {0: (0,1), 1: (1,0)}
 poscorr_reward_probs = {0: (0,1), 1: (0,1)}
 reward_probs = anticorr_reward_probs if corrSign == 'anti' else poscorr_reward_probs
 E = ValueInference(nblocks_per_episode=4, ntrials_per_block=8,
-                is_trial_level=True, ntrials_per_block_jitter=3,
+                is_trial_level=is_trial_level, ntrials_per_block_jitter=3,
                 reward_probs_per_block=reward_probs)
 
 #%% synapse model
 
 E.reward_offset_if_trial_level=False; E.make_trials()
 model = ValueSynapseRNN(input_size=E.ncues + E.nrewards*int(E.include_reward),
+                        representation_size=E.ncues + 1,
                         hidden_size=E.ncues,
                         output_size=E.nrewards,
-                        representation_size=E.ncues + 1,
                         gamma=0 if E.is_trial_level else 0.93,
                         learn_initial_state=True, bias=True)
 
@@ -52,9 +54,9 @@ responses = probe_model(model, dataloader)
 
 data = np.vstack([(trial.block_index, trial.cue, trial.y.sum(), trial.value[0,0]) for trial in responses])
 z = np.vstack([trial.Z for trial in responses])
-z = np.vstack([model.initial_state.detach().numpy(), z])
+z = np.vstack([model.initial_state.detach().numpy(), z]) # internal weights per trial
 with torch.no_grad():
-    w = (model.value(torch.tensor(z)) + model.bias).numpy()
+    w = (model.value(torch.tensor(z)) + model.bias).numpy() # synapse strengths on each trial (one per rep dim)
 
 T = 24
 h = plt.plot(w[:T,:2], '.-', alpha=0.3)
@@ -64,19 +66,15 @@ print(data[:T])
 #%% make model
 
 hidden_size = 10 # number of hidden neurons
-
-# import torch; gamma = torch.Tensor([0.9, 0.95]) # discount rate
-gamma = 0.93 if not E.is_trial_level else 0
-
 model = ValueRNN(input_size=E.ncues + E.nrewards*int(E.include_reward),
-                 output_size=E.nrewards, hidden_size=hidden_size, gamma=gamma)
-model.to('cpu')
-print('model # parameters: {}'.format(model.n_parameters()))
+                 output_size=E.nrewards, hidden_size=hidden_size,
+                 gamma=0.93 if not E.is_trial_level else 0)
 
 #%% train model step-by-step
 
 dataloader = make_dataloader(E, batch_size=1)
-scores, other_scores, weights = train_model_step_by_step(model, dataloader, epochs=5, print_every=10)
+scores, other_scores, weights = train_model_step_by_step(model, dataloader, epochs=5, print_every=20)
+plt.plot(scores), plt.xlabel('# epochs'), plt.ylabel('loss')
 
 #%% train model
 
@@ -93,15 +91,10 @@ optimizer = torch.optim.Adam(
 optimizer = None
 
 scores, other_scores, weights = train_model(model, dataloader, optimizer=optimizer, epochs=epochs)
-
-#%% plot loss
-
 plt.plot(scores), plt.xlabel('# epochs'), plt.ylabel('loss')
 
 #%% probe model
 
-# model.gamma = model.gamma.numpy()
-# E.ntrials_per_episode = E.ntrials
 E.nblocks_per_episode = 1000; E.nepisodes = 1
 E.jitter = 0
 E.make_trials() # create new (test) trials
@@ -208,7 +201,6 @@ def fit_pca(trials):
 def apply_pca(trials, pca):
     for trial in trials:
         trial.Z_pc = pca.transform(trial.Z)
-    return trials
 
 pca = fit_pca(responses)
 apply_pca(responses, pca)
@@ -228,6 +220,6 @@ X = X[t1:t2]
 B = B[t1:t2]
 plt.plot(Z[:,0], Z[:,1], '-')
 for z,x,b in zip(Z,X,B):
-    plt.plot(z[0], z[1], 'o' if b==0 else 'x', markersize=5, color=clrs[x])
+    plt.plot(z[0], z[1], 'o' if b==0 else 's', markersize=5, color=clrs[x])
 
 #%%

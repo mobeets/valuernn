@@ -33,7 +33,8 @@ def pad_collate(batch):
 def make_dataloader(experiment, batch_size=1):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
-def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.003, lmbda=0, inactivation_indices=None, print_every=1, reward_is_offset=True):
+def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.003,
+                             lmbda=0, inactivation_indices=None, print_every=1, reward_is_offset=True):
     if dataloader.batch_size != 1:
         raise Exception("batch_size must be 1 when training model step-by-step")
     
