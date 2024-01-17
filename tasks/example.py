@@ -13,7 +13,7 @@ class Example(Dataset):
         self.make_trials()
 
     def make_trial(self):
-        """ creates a trace conditioning trial with a random delay (isi) """
+        """ creates a trace conditioning trial with a randomly chosen cue """
         iti = 10 # delay before trial onset
         cue = np.random.choice(np.arange(self.ncues)) # CS identity
         isi = 5 if cue == 0 else 9 # reward delay
