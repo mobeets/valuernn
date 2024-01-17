@@ -38,7 +38,6 @@ class ValueInference(Dataset):
         self.reward_sizes_per_block = reward_sizes_per_block
         self.reward_probs_per_block = reward_probs_per_block
         self.jitter = jitter
-        
 
         self.iti_min = iti_min
         self.iti_max = iti_max # n.b. only used if iti_dist == 'uniform'
