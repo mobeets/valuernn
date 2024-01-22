@@ -100,10 +100,10 @@ class ValueInference(Dataset):
                         # need to offset reward by one, both in X and y, since training learns r(t+1)
                         assert trial.trial_length == 1
                         r_cur = trial.y[0,0]
-                        if not self.reward_offset_if_trial_level:
-                            r_prev = r_cur
                         if self.include_reward:
                             trial.X[0,-1] = r_prev
+                        if not self.reward_offset_if_trial_level:
+                            r_prev = r_cur
                         trial.y[0,0] = r_prev
                         r_prev = r_cur
                     trial.episode_index = i
