@@ -2,8 +2,6 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib as mpl
-import torch
 from train import make_dataloader, train_model, probe_model
 from model import ValueRNN
 from tasks.example import Example
@@ -22,7 +20,7 @@ model = ValueRNN(input_size=E.ncues + E.nrewards,
 
 #%% train model
 
-epochs = 200
+epochs = 100
 batch_size = 12
 dataloader = make_dataloader(E, batch_size=batch_size)
 scores, other_scores, weights = train_model(model, dataloader, optimizer=None, epochs=epochs)

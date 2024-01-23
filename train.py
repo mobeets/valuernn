@@ -100,7 +100,7 @@ def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.0
     finally:
         return losses, {'episode_losses': episode_losses}, weights
 
-def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0, reward_is_offset=True, auto_readout_td=False):
+def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0, reward_is_offset=True, auto_readout_lr=0.0):
     if optimizer is None: # no gradient steps are taken
         model.eval()
     else:
@@ -114,7 +114,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
         X = pack_padded_sequence(X, x_lengths, enforce_sorted=False)
 
         # train TD learning
-        V, _ = model(X, inactivation_indices, y=y if auto_readout_td else None)
+        V, _ = model(X, inactivation_indices, y=y if auto_readout_lr > 0 else None, auto_readout_lr=auto_readout_lr)
 
         if model.predict_next_input:
             # predict next observation
@@ -158,7 +158,7 @@ def train_model(model, dataloader=None,
                 experiment=None, batch_size=12, lr=0.003, lmbda=0,
                 nchances=-1, epochs=5000, print_every=1,
                 reward_is_offset=True,
-                auto_readout_td=False,
+                auto_readout_lr=0.0,
                 save_hook=None, save_every=10, optimizer=None,
                 test_dataloader=None, test_experiment=None,
                 inactivation_indices=None):
@@ -181,7 +181,7 @@ def train_model(model, dataloader=None,
     batch_losses = []
     scores[0], _ = train_epoch(model, dataloader, loss_fn, None, lmbda=lmbda,
                                reward_is_offset=reward_is_offset,
-                               auto_readout_td=auto_readout_td)
+                               auto_readout_lr=auto_readout_lr)
     best_score = scores[0]
     best_weights = model.checkpoint_weights()
     nsteps_increase = 0
@@ -195,7 +195,7 @@ def train_model(model, dataloader=None,
                 if test_dataloader is not None:
                     test_score, _ = train_epoch(model, test_dataloader, loss_fn, optimizer=None,
                                                 reward_is_offset=reward_is_offset,
-                                                auto_readout_td=auto_readout_td)
+                                                auto_readout_lr=auto_readout_lr)
                     output += f', test loss: {test_score:0.4f}'
                 else:
                     test_score = ()
@@ -206,7 +206,7 @@ def train_model(model, dataloader=None,
             scores[t+1], batch_loss = train_epoch(model, dataloader, loss_fn, optimizer,
                                       inactivation_indices=inactivation_indices,
                                       reward_is_offset=reward_is_offset,
-                                      auto_readout_td=auto_readout_td)
+                                      auto_readout_lr=auto_readout_lr)
             weights.append(deepcopy(model.state_dict()))
             batch_losses.append(batch_loss)
             
@@ -231,7 +231,7 @@ def train_model(model, dataloader=None,
         print(f"Done! Best loss: {best_score}")
         return scores, {'test_loss': test_scores, 'batch_losses': batch_losses}, weights
 
-def probe_model(model, dataloader=None, experiment=None, inactivation_indices=None, reward_is_offset=True):
+def probe_model(model, dataloader=None, experiment=None, inactivation_indices=None, reward_is_offset=True, auto_readout_lr=0.0):
     if experiment is not None:
         assert dataloader is None
         dataloader = make_dataloader(experiment, batch_size=1)
@@ -241,16 +241,21 @@ def probe_model(model, dataloader=None, experiment=None, inactivation_indices=No
       for batch, (X, y, x_lengths, trial_lengths, episode) in enumerate(dataloader):
 
         # pass inputs through model while storing hidden activity
-        V_batch, _ = model(X, inactivation_indices)
+        V_batch, Out_batch = model(X, inactivation_indices, return_hiddens=True, y=y if auto_readout_lr > 0 else None, auto_readout_lr=auto_readout_lr)
         Z_batch = model.features['hidden'][0]
         if model.recurrent_cell == 'LSTM':
             Z_batch = torch.dstack(Z_batch)
+        if auto_readout_lr > 0:
+            W_batch = Out_batch[1].detach()
+        else:
+            W_batch = torch.tile(model.value.weight.data, (Z_batch.shape[0], Z_batch.shape[1], 1))
         
         # convert to numpy for saving
         X_batch = X.numpy()
         y_batch = y.numpy()
         V_batch = V_batch.numpy()
         Z_batch = Z_batch.detach().numpy()
+        W_batch = W_batch.numpy()
     
         # for each episode in batch
         for j in range(X_batch.shape[1]):
@@ -263,6 +268,7 @@ def probe_model(model, dataloader=None, experiment=None, inactivation_indices=No
                 Z = Z_batch[t1:t2,j,:]
                 y = y_batch[t1:t2,j,:]
                 V = V_batch[t1:t2,j,:]
+                W = W_batch[t1:t2,j,:]
                 t1 = t2
                 
                 # get rpe
@@ -280,5 +286,6 @@ def probe_model(model, dataloader=None, experiment=None, inactivation_indices=No
                 trial.Z = Z
                 trial.value = V
                 trial.rpe = rpe
+                trial.readout = W
                 trials.append(trial)
     return trials

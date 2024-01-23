@@ -24,16 +24,18 @@ class ValueRNN(nn.Module):
         super().__init__()
 
         self.gamma = gamma
-        self.input_size = input_size
-        self.output_size = output_size
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.recurrent_cell = recurrent_cell
+        self.input_size = input_size # input dimensionality
+        self.output_size = output_size # output dimensionality
+        self.hidden_size = hidden_size # number of hidden recurrent units
+        self.num_layers = num_layers # number of layers in recurrent layer; probably only works for 1
+        self.recurrent_cell = recurrent_cell # type of recurrent cell
+        self.predict_next_input = predict_next_input # not used
+        self.sigma_noise = sigma_noise # s.d. of noise added internally to GRU
+
+        # params used for initializing RNN
         self.kernel_initializer = 'glorot_uniform'
         self.recurrent_initializer = 'orthogonal'
         self.bias_regularizer = 'zeros'
-        self.predict_next_input = predict_next_input
-        self.sigma_noise = sigma_noise
 
         if recurrent_cell == 'GRU':
             if sigma_noise > 0:
@@ -69,7 +71,7 @@ class ValueRNN(nn.Module):
         self.initialization_gain = initialization_gain
         self.reset(initialization_gain=self.initialization_gain)
 
-    def forward(self, X, inactivation_indices=None, h0=None, y=None, return_hiddens=False):
+    def forward(self, X, inactivation_indices=None, h0=None, return_hiddens=False, y=None, auto_readout_lr=0.0):
         """ v(t) = w.dot(z(t)), and z(t) = f(x(t), z(t-1)) """
         if inactivation_indices:
             return self.forward_with_lesion(X, inactivation_indices)
@@ -98,36 +100,40 @@ class ValueRNN(nn.Module):
             V = self.bias + self.value(Z)
             hiddens = Z
         else:
-            V, W = self.forward_with_td(Z, y)
+            V, W = self.forward_with_td(Z, y, auto_readout_lr=auto_readout_lr)
             hiddens = (Z, W)
 
         return V, (hiddens if return_hiddens else last_hidden)
     
-    def forward_with_td(self, Z, y, alpha=0.0):
+    def forward_with_td(self, Z, y, auto_readout_lr=0.0):
         """
-        get value estimate, where the value readout is updated step-by-step using TD with lr=alpha
+        get value estimates, where the value readout is updated step-by-step using TD
         inputs:
-        - Z: inputs with shape (seq_length, batch_size, input_size)
+        - Z: inputs with shape (seq_length, batch_size, hidden_size)
         - y: reward with shape (seq_length, batch_size, 1)
-        - alpha (float): learning rate for value weights
+        - auto_readout_lr (float): learning rate for value weights
+        outputs:
+        - V: value estimate with shape (seq_length, batch_size, output_size)
+        - W: readout weights with shape (seq_length, batch_size, hidden_size)
 
         n.b. model must be predicting r[t], not r[t+1]
         """
         assert self.recurrent_cell == 'GRU'
         vs = []
         ws = []
-        w_t = torch.tile(self.value.weight, (Z.shape[1], 1)) # (batch_size, self.hidden_size)
-        for t, z_t in enumerate(Z): # x_t is (batch_size, self.input_size)
+        w_t = torch.tile(self.value.weight, (Z.shape[1], 1)) # (batch_size, hidden_size)
+        for t, z_t in enumerate(Z): # z_t is (batch_size, hidden_size)
             # get current value estimate
-            w_t_prev = w_t # (batch_size, self.hidden_size)
+            w_t_prev = w_t # (batch_size, hidden_size)
             v_t = self.bias + (z_t * w_t_prev).sum(axis=-1) # (batch_size,)
             
             # update w_t using TD learning
-            z_t_next = Z[t+1].detach() if t+1 < len(Z) else 0*z_t # (batch_size, self.hidden_size)
+            z_t_next = Z[t+1].detach() if t+1 < len(Z) else 0*z_t # (batch_size, hidden_size)
             v_t_next = self.bias.detach() + (z_t_next * w_t_prev.detach()).sum(axis=-1) # (batch_size,)
             d_t = y[t,:,0] + self.gamma*v_t_next - v_t.detach() # (batch_size,); n.b. x_t[:,-1] is r(t)
-            w_t = w_t_prev + alpha * d_t[:,None] * z_t.detach() # (batch_size, self.hidden_size)
+            w_t = w_t_prev + auto_readout_lr * d_t[:,None] * z_t.detach() # (batch_size, hidden_size)
 
+            # save outputs
             ws.append(w_t_prev[None,:,:])
             vs.append(v_t)
         V = torch.vstack(vs)[:,:,None]
