@@ -69,19 +69,70 @@ class ValueRNN(nn.Module):
         self.initialization_gain = initialization_gain
         self.reset(initialization_gain=self.initialization_gain)
 
-    def forward(self, xin, inactivation_indices=None, h0=None, return_hiddens=False):
+    def forward(self, X, inactivation_indices=None, h0=None, y=None, return_hiddens=False):
         """ v(t) = w.dot(z(t)), and z(t) = f(x(t), z(t-1)) """
         if inactivation_indices:
-            return self.forward_with_lesion(xin, inactivation_indices)
-        x, hidden = self.rnn(xin, hx=h0)
-        if type(x) is torch.nn.utils.rnn.PackedSequence:
-            x, _ = pad_packed_sequence(x, batch_first=False)
-
+            return self.forward_with_lesion(X, inactivation_indices)
+        
+        # get initial state of RNN
+        if h0 is None and self.learn_initial_state:
+            if type(X) is torch.nn.utils.rnn.PackedSequence:
+                batch_size = len(X[2])
+            else:
+                assert len(X.shape) == 3
+                batch_size = X.shape[1]
+            h0 = torch.tile(self.initial_state, (batch_size,1))[None,:]
+        
+        # pass inputs through RNN
+        Z, last_hidden = self.rnn(X, hx=h0)
+        
+        if type(Z) is torch.nn.utils.rnn.PackedSequence:
+            Z, _ = pad_packed_sequence(Z, batch_first=False)
+        
         if return_hiddens:
             # only for GRU do we get full sequence of hiddens
             # because only in GRU are the hiddens the same as the outputs
             assert self.recurrent_cell == 'GRU'
-        return self.bias + self.value(x), (x if return_hiddens else hidden)
+
+        if y is None:
+            V = self.bias + self.value(Z)
+            hiddens = Z
+        else:
+            V, W = self.forward_with_td(Z, y)
+            hiddens = (Z, W)
+
+        return V, (hiddens if return_hiddens else last_hidden)
+    
+    def forward_with_td(self, Z, y, alpha=0.0):
+        """
+        get value estimate, where the value readout is updated step-by-step using TD with lr=alpha
+        inputs:
+        - Z: inputs with shape (seq_length, batch_size, input_size)
+        - y: reward with shape (seq_length, batch_size, 1)
+        - alpha (float): learning rate for value weights
+
+        n.b. model must be predicting r[t], not r[t+1]
+        """
+        assert self.recurrent_cell == 'GRU'
+        vs = []
+        ws = []
+        w_t = torch.tile(self.value.weight, (Z.shape[1], 1)) # (batch_size, self.hidden_size)
+        for t, z_t in enumerate(Z): # x_t is (batch_size, self.input_size)
+            # get current value estimate
+            w_t_prev = w_t # (batch_size, self.hidden_size)
+            v_t = self.bias + (z_t * w_t_prev).sum(axis=-1) # (batch_size,)
+            
+            # update w_t using TD learning
+            z_t_next = Z[t+1].detach() if t+1 < len(Z) else 0*z_t # (batch_size, self.hidden_size)
+            v_t_next = self.bias.detach() + (z_t_next * w_t_prev.detach()).sum(axis=-1) # (batch_size,)
+            d_t = y[t,:,0] + self.gamma*v_t_next - v_t.detach() # (batch_size,); n.b. x_t[:,-1] is r(t)
+            w_t = w_t_prev + alpha * d_t[:,None] * z_t.detach() # (batch_size, self.hidden_size)
+
+            ws.append(w_t_prev[None,:,:])
+            vs.append(v_t)
+        V = torch.vstack(vs)[:,:,None]
+        W = torch.vstack(ws)
+        return V, W
     
     def forward_with_lesion(self, x, indices=None):
         hs = []
