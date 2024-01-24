@@ -63,9 +63,10 @@ class ValueRNN(nn.Module):
         self.bias = nn.Parameter(torch.tensor([0.0]*output_size))
         self.learn_bias = bias
         self.bias.requires_grad = self.learn_bias
-        self.initial_state = nn.Parameter(torch.zeros(hidden_size))
-        self.initial_state.requires_grad = learn_initial_state
         self.learn_initial_state = learn_initial_state
+        if learn_initial_state:
+            self.initial_state = nn.Parameter(torch.zeros(hidden_size))
+            self.initial_state.requires_grad = learn_initial_state
 
         self.saved_weights = {}
         self.initialization_gain = initialization_gain
@@ -211,7 +212,8 @@ class ValueRNN(nn.Module):
 
     def reset(self, initialization_gain=None):
         self.bias.data *= 0
-        self.initial_state.data *= 0
+        if self.learn_initial_state:
+            self.initial_state.data *= 0
 
         for layer in self.children():
            if hasattr(layer, 'reset_parameters'):
