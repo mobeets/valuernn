@@ -44,13 +44,16 @@ def trials_to_mat(trials, outfile):
 
 datadir = '/Users/mobeets/code/value-rnn-beliefs/data/models/fulltask'
 model_files = glob.glob(os.path.join(datadir, '*.json'))
+print('Found {} model files.'.format(len(model_files)))
 
 """
 example args:
     {'run_name': 'fulltask_14496447_11', 'save_dir': 'data', 'n_repeats': 1, 'pretrained_modelfile': None, 'random_seed': None, 'experiment': 'starkweather', 'task_index': 2, 'ncues': 4, 'iti_p': 0.125, 'iti_min': 10, 'p_omission_task_2': 0.1, 'ntrials_per_cue': 2500, 'ntrials_per_episode': 20, 'nblocks': 1000, 'reward_time': 5, 'session_type': 'contingency', 'ntrials': 1000, 'recurrent_cell': 'GRU', 'hidden_size': 50, 'sigma_noise': 0.0, 'gamma': 0.93, 'initialization_gain': 0, 'lr': 0.003, 'batch_size': 12, 'n_epochs': 300, 'n_chances': -1, 'time': '2024-01-05 14:48:14', 'weightsfile': 'data/fulltask_14496447_111_value_starkweather_task2_gru_h50_itimin10_4cues-v0.pth', 'weightsfile_initial': 'data/fulltask_14496447_111_value_starkweather_task2_gru_h50_itimin10_4cues-v0_initial.pth'}
 """
 
-for model_file in model_files:
+for i, model_file in enumerate(model_files):
+    print('Processing model {} of {}...'.format(i+1, len(model_files)))
+
     # load model file
     args = json.load(open(model_file))
 
@@ -81,5 +84,5 @@ for model_file in model_files:
         trials = probe_model(model, dataloader)[1:] # ignore first trial
 
         # export trial data as .mat
-        matfile = os.path.join(datadir, weights_file.replace('.pth', '.mat'))
+        matfile = weights_file.replace('.pth', '.mat')
         trials_to_mat(trials, matfile)
