@@ -202,12 +202,14 @@ class ValueRNN(nn.Module):
         assert self.kernel_initializer == 'glorot_uniform'
         assert self.recurrent_initializer == 'orthogonal'
         assert self.bias_regularizer == 'zeros'
-        for weight_ih, weight_hh, bias_ih, bias_hh in self.rnn.all_weights:
+        for weight_ih, weight_hh, bias_ih, bias_hh in self.rnn.all_weights: # for each layer in rnn
             bias_ih.data.fill_(0)
             bias_hh.data.fill_(0)
-            for i in range(0, weight_hh.size(0), self.hidden_size):
+            gate_inds = range(0, weight_hh.size(0), self.hidden_size)
+            gate_names = ['reset', 'update', 'new']
+            for name, i in zip(gate_names, gate_inds):
                 nn.init.orthogonal_(weight_hh.data[i:(i+self.hidden_size)], gain=gain) # orthogonal
-                nonlinearity = 'tanh' if ((self.recurrent_cell.lower() == 'rnn') or (i == 2)) else 'sigmoid'
+                nonlinearity = 'tanh' if ((self.recurrent_cell.lower() == 'rnn') or (name == 'new')) else 'sigmoid'
                 nn.init.xavier_uniform_(weight_ih.data[i:(i+self.hidden_size)], gain=nn.init.calculate_gain(nonlinearity)) # glorot_uniform
 
     def reset(self, initialization_gain=None):
