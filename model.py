@@ -93,9 +93,9 @@ class ValueRNN(nn.Module):
             Z, _ = pad_packed_sequence(Z, batch_first=False)
         
         if return_hiddens:
-            # only for GRU do we get full sequence of hiddens
-            # because only in GRU are the hiddens the same as the outputs
-            assert self.recurrent_cell == 'GRU'
+            # only for RNN/GRU do we get full sequence of hiddens
+            # because only in RNN/GRU are the hiddens the same as the outputs
+            assert self.recurrent_cell.lower() in ['gru', 'rnn']
 
         if y is None:
             V = self.bias + self.value(Z)
@@ -119,7 +119,7 @@ class ValueRNN(nn.Module):
 
         n.b. model must be predicting r[t], not r[t+1]
         """
-        assert self.recurrent_cell == 'GRU'
+        assert self.recurrent_cell.lower() in ['gru', 'rnn']
         vs = []
         ws = []
         w_t = torch.tile(self.value.weight, (Z.shape[1], 1)) # (batch_size, hidden_size)
@@ -157,7 +157,7 @@ class ValueRNN(nn.Module):
             if send_cell:
                 (h_t, c_t) = h_t
             if len(h_t) == 0:
-                assert self.recurrent_cell == 'GRU' and self.rnn.sigma_noise > 0
+                assert self.recurrent_cell.lower() in ['gru', 'rnn'] and self.rnn.sigma_noise > 0
                 h_t = o_t
 
             if indices is not None:
@@ -264,10 +264,9 @@ class ValueSynapseRNN(ValueRNN):
 
         assert self.output_size == 1
         assert self.sigma_noise == 0
-        assert self.recurrent_cell == 'GRU'
+        assert self.recurrent_cell.lower() in ['gru', 'rnn']
         assert self.learn_weights is True
         assert self.representation_size is not None
-        assert self.recurrent_cell == 'GRU'
 
         self.representation = nn.Linear(in_features=self.input_size,
                                         out_features=self.representation_size,
@@ -309,7 +308,7 @@ class ValueSynapseRNN(ValueRNN):
         if return_hiddens:
             # only for GRU do we get full sequence of hiddens
             # because only in GRU are the hiddens the same as the outputs
-            assert self.recurrent_cell == 'GRU'
+            assert self.recurrent_cell.lower() in ['gru', 'rnn']
         return self.bias + v, (w if return_hiddens else hidden)
     
     def reset(self, initialization_gain=None):
