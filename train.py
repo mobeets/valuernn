@@ -100,7 +100,7 @@ def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.0
     finally:
         return losses, {'episode_losses': episode_losses}, weights
 
-def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0, reward_is_offset=True, auto_readout_lr=0.0):
+def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0, reward_is_offset=True, auto_readout_lr=0.0, alphas=None):
     if optimizer is None: # no gradient steps are taken
         model.eval()
     else:
@@ -125,6 +125,13 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
             V_hat = V[:-1,:,:]
             V_next = V[1:,:,:]
             V_target = (y[1:,:,:] if reward_is_offset else y[:-1,:,:]) + model.gamma*V_next.detach()
+
+            if alphas is not None:
+                # for distributional RL
+                alpha_plus, alpha_minus = alphas
+                alpha = alpha_plus*(V_target > V_hat) + alpha_minus*(V_target <= V_hat)
+                V_hat *= torch.sqrt(alpha)
+                V_target *= torch.sqrt(alpha)
 
         # do not compute loss on padded values
         loss = 0.0
@@ -158,7 +165,7 @@ def train_model(model, dataloader=None,
                 experiment=None, batch_size=12, lr=0.003, lmbda=0,
                 nchances=-1, epochs=5000, print_every=1,
                 reward_is_offset=True,
-                auto_readout_lr=0.0,
+                auto_readout_lr=0.0, alphas=None,
                 save_hook=None, save_every=10, optimizer=None,
                 test_dataloader=None, test_experiment=None,
                 inactivation_indices=None):
@@ -181,7 +188,7 @@ def train_model(model, dataloader=None,
     batch_losses = []
     scores[0], _ = train_epoch(model, dataloader, loss_fn, None, lmbda=lmbda,
                                reward_is_offset=reward_is_offset,
-                               auto_readout_lr=auto_readout_lr)
+                               auto_readout_lr=auto_readout_lr, alphas=alphas)
     best_score = scores[0]
     best_weights = model.checkpoint_weights()
     nsteps_increase = 0
@@ -195,7 +202,7 @@ def train_model(model, dataloader=None,
                 if test_dataloader is not None:
                     test_score, _ = train_epoch(model, test_dataloader, loss_fn, optimizer=None,
                                                 reward_is_offset=reward_is_offset,
-                                                auto_readout_lr=auto_readout_lr)
+                                                auto_readout_lr=auto_readout_lr, alphas=alphas)
                     output += f', test loss: {test_score:0.4f}'
                 else:
                     test_score = ()
@@ -206,7 +213,7 @@ def train_model(model, dataloader=None,
             scores[t+1], batch_loss = train_epoch(model, dataloader, loss_fn, optimizer,
                                       inactivation_indices=inactivation_indices,
                                       reward_is_offset=reward_is_offset,
-                                      auto_readout_lr=auto_readout_lr)
+                                      auto_readout_lr=auto_readout_lr, alphas=alphas)
             weights.append(deepcopy(model.state_dict()))
             batch_losses.append(batch_loss)
             

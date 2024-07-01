@@ -5,19 +5,25 @@ from .trial import Trial
 device = torch.device('cpu')
 
 class Example(Dataset):
-    def __init__(self, ntrials=1000, ntrials_per_episode=20):
+    def __init__(self, ncues=2, iti=10, isis=None, ntrials=1000, ntrials_per_episode=20):
         self.ntrials = ntrials
         self.ntrials_per_episode = ntrials_per_episode
-        self.ncues = 2 # number of distinct cues (CS)
+        self.iti = iti # number of time steps between trials
+        self.isis = (5,)*ncues if isis is None else isis
+        self.ncues = ncues # number of distinct cues (CS)
         self.nrewards = 1 # number of distinct reward types (US)
+        assert len(self.isis) == self.ncues, 'isis must have length equal to ncues'
         self.make_trials()
 
     def make_trial(self):
         """ creates a trace conditioning trial with a randomly chosen cue """
-        iti = 10 # delay before trial onset
         cue = np.random.choice(np.arange(self.ncues)) # CS identity
-        isi = 5 if cue == 0 else 9 # reward delay
-        return Trial(cue=cue, iti=iti, isi=isi, reward_size=1, show_cue=True, ncues=self.ncues)
+        iti = self.iti # intertrial interval
+        isi = self.isis[cue] # reward delay
+        reward_size = 1.0
+        # iti += np.random.choice([-1,0,1]) # add jitter
+        # isi += np.random.choice([-1,0,1]) # add jitter
+        return Trial(cue=cue, iti=iti, isi=isi, reward_size=reward_size, show_cue=True, ncues=self.ncues)
     
     def make_trials(self):
         """ creates trials and episodes for a random experiment """
