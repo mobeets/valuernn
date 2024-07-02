@@ -38,7 +38,7 @@ class RewardTimingDistribution:
         return self.rng.choice(self.rew_times, p=self.time_probs)
 
 class Trial:
-    def __init__(self, cue, iti, isi, reward_size, show_cue, ncues, t_padding=0, include_reward=True, include_null_input=False):
+    def __init__(self, cue, iti, isi, reward_size, show_cue, ncues, t_padding=0, include_reward=True, include_null_input=False, do_trace_conditioning=True):
         self.cue = cue
         self.iti = iti
         self.isi = isi
@@ -49,6 +49,7 @@ class Trial:
         self.t_padding = t_padding
         self.include_reward = include_reward
         self.include_null_input = include_null_input
+        self.do_trace_conditioning = do_trace_conditioning
  
         self.trial_index_in_episode = None
         self.make()
@@ -56,7 +57,10 @@ class Trial:
     def make(self):
         trial = np.zeros((self.iti + self.isi + 1 + self.t_padding, self.ncues + self.nrewards))
         if self.show_cue: # encode stimulus
-            trial[self.iti, self.cue] = 1.0
+            if self.do_trace_conditioning:
+                trial[self.iti, self.cue] = 1.0
+            else: # delay conditioning
+                trial[self.iti:(self.iti+self.isi+1), self.cue] = 1.0
         trial[self.iti + self.isi, -self.nrewards:] = self.reward_size
         
         X = trial[:,:-self.nrewards]

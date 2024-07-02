@@ -5,13 +5,14 @@ from .trial import Trial
 device = torch.device('cpu')
 
 class Example(Dataset):
-    def __init__(self, ncues=2, iti=10, isis=None, ntrials=1000, ntrials_per_episode=20):
+    def __init__(self, ncues=2, iti=10, isis=None, ntrials=1000, ntrials_per_episode=20, do_trace_conditioning=True):
         self.ntrials = ntrials
         self.ntrials_per_episode = ntrials_per_episode
         self.iti = iti # number of time steps between trials
         self.isis = (5,)*ncues if isis is None else isis
         self.ncues = ncues # number of distinct cues (CS)
         self.nrewards = 1 # number of distinct reward types (US)
+        self.do_trace_conditioning = do_trace_conditioning # else delay conditioning
         assert len(self.isis) == self.ncues, 'isis must have length equal to ncues'
         self.make_trials()
 
@@ -23,7 +24,7 @@ class Example(Dataset):
         reward_size = 1.0
         # iti += np.random.choice([-1,0,1]) # add jitter
         # isi += np.random.choice([-1,0,1]) # add jitter
-        return Trial(cue=cue, iti=iti, isi=isi, reward_size=reward_size, show_cue=True, ncues=self.ncues)
+        return Trial(cue=cue, iti=iti, isi=isi, reward_size=reward_size, show_cue=True, ncues=self.ncues, do_trace_conditioning=self.do_trace_conditioning)
     
     def make_trials(self):
         """ creates trials and episodes for a random experiment """

@@ -19,7 +19,7 @@ mpl.rcParams['axes.spines.top'] = False
 #%% make trials
 
 ntrials_per_episode = 10
-doDelayConditioning = True # if False, do trace conditioning
+do_trace_conditioning = False # if False, do trace conditioning
 
 # (I,T)
 # model_params = [(10,2), (20,4), (30,6), (40,8), (24,2), (24,4), (24,6), (24,8)]
@@ -29,7 +29,7 @@ Es = {}
 for iti, isi in model_params:
     key = 'T={}, I={}, I/T={}'.format(isi, iti, iti/isi)
     print(key)
-    Es[key] = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=ntrials_per_episode, ntrials_per_episode=ntrials_per_episode)
+    Es[key] = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=ntrials_per_episode, ntrials_per_episode=ntrials_per_episode, do_trace_conditioning=do_trace_conditioning)
 
 print(len(Es))
 
@@ -102,14 +102,14 @@ print([len(E) for k,E in Es.items()]) # number of episodes
 # but for episode duration to be a similar total length
 # and to have a total number of episodes
 
-# gamma = 0.93
-for k,E in Es.items():
-    # r_scale = gamma ** E.isis[0]
-    for episode in E.episodes:
-        for trial in episode:
-            if doDelayConditioning:
-                trial.X[trial.iti:,0] = 1
-            # trial.y[trial.y > 0] = 1 / r_scale
+# # gamma = 0.93
+# for k,E in Es.items():
+#     # r_scale = gamma ** E.isis[0]
+#     for episode in E.episodes:
+#         for trial in episode:
+#             if doDelayConditioning:
+#                 trial.X[trial.iti:,0] = 1
+#             # trial.y[trial.y > 0] = 1 / r_scale
 
 #%% get true V(CS)
 
