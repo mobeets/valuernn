@@ -31,6 +31,8 @@ def get_experiments_by_id(id, default_exp):
         return ((15,6), (20,6), (30,6), (40,6), (60,6))
     elif id == 5: # fixed T, larger I/T
         return ((72,6), (90,6), (120,6), (150,6), (180,6))
+    elif id == 6: # Burke 2023 task with time step = 0.25s
+        return ((48*5,5), (480*5,5))
     else:
         raise Exception('experiments id not recognized')
     pass
@@ -41,7 +43,15 @@ def make_trials(args):
     for iti, isi in experiments:
         print('I={}, T={}, I/T={}'.format(iti, isi, iti/isi))
         key = (iti, isi)
-        Es[key] = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=args['fixed_ntrials_per_episode'], ntrials_per_episode=args['fixed_ntrials_per_episode'], do_trace_conditioning=False)
+        if args['fixed_episode_length'] < 0:
+            E = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=args['fixed_ntrials_per_episode'], ntrials_per_episode=args['fixed_ntrials_per_episode'], do_trace_conditioning=False)
+        else:
+            ntrials = args['fixed_episode_length'] / (iti+isi)
+            if ntrials != int(ntrials):
+                raise Exception(f"Error: {args['fixed_episode_length']=} cannot be evenly divided into trials with {isi=} and {iti=}")
+            ntrials = int(ntrials)
+            E = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=ntrials, ntrials_per_episode=ntrials, do_trace_conditioning=False)
+        Es[key] = E
     return Es
 
 def make_model(Es, args):
