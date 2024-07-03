@@ -23,16 +23,26 @@ def get_experiments_by_id(id, default_exp):
         return default_exp
     elif id == 1: # fixed I/T and T
         return ((15,3), (20,4), (30,6), (40,8), (60,12), (24,3), (24,4), (24,6), (24,8), (24,12))
-    elif id == 2: # fixed I/T
+    elif id == 2: # fixed I/T = 5
         return ((15,3), (20,4), (30,6), (40,8), (60,12))
-    elif id == 3: # fixed I
+    elif id == 3: # fixed I = 24
         return ((24,3), (24,4), (24,6), (24,8), (24,12))
-    elif id == 4: # fixed T
+    elif id == 4: # fixed T = 6
         return ((15,6), (20,6), (30,6), (40,6), (60,6))
-    elif id == 5: # fixed T, larger I/T
+    elif id == 5: # fixed T = 6, larger I/T
         return ((72,6), (90,6), (120,6), (150,6), (180,6))
     elif id == 6: # Burke 2023 task with time step = 0.25s
         return ((48*5,5), (480*5,5))
+    elif id == 7: # fixed I/T = 10
+        return ((30,3), (40,4), (60,6), (80,8), (120,12))
+    elif id == 8: # fixed I == 48
+        return ((48,3), (48,4), (48,6), (48,8), (48,12))
+    elif id == 9: # fixed T = 12
+        return ((15,12), (20,12), (30,12), (40,12), (60,12))
+    elif id == 10: # fixed I/T = 10, larger T
+        return ((150,15), (180,18), (240,24), (300,30), (400,40))
+    elif id == 11: # fixed I == 48, larger T
+        return ((48,15), (48,18), (48,24), (48,30), (48,40))
     else:
         raise Exception('experiments id not recognized')
     pass
