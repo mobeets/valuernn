@@ -76,14 +76,19 @@ def train_models(model, Es, args):
     model.reset()
     W0 = model.checkpoint_weights()
     for key, E in Es.items():
-        model.restore_weights(W0)
+        if args['share_seed']:
+            model.restore_weights(W0)
+        else:
+            model.reset()
         E.make_trials()
         dataloader = make_dataloader(E, batch_size=1)
         epochs = int(args['ntraining_trials'] / E.ntrials)
         if args.get('verbose', True):
             print(f'----- {key}, epochs={epochs} -----')
-        # optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
-        optimizer = torch.optim.Adam(model.parameters(), lr=args['lr'])
+        if args['optimizer'] == 'adam':
+            optimizer = torch.optim.Adam(model.parameters(), lr=args['lr'])
+        elif args['optimizer'] == 'sgd':
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
         scores, other_scores, weights = train_model(model, dataloader, optimizer=optimizer, epochs=epochs, print_every=epochs)
 
         CS_resps = []
@@ -168,6 +173,10 @@ if __name__ == '__main__':
     parser.add_argument('--outdir', type=str,
         default='data',
         help='name of directory in which to save all results as .pickle')
+    parser.add_argument('--optimizer', type=str,
+        default='adam',
+        choices=['adam', 'sgd'],
+        help='name of optimizer used to find gradient step')
     parser.add_argument('--verbose', action='store_true',
         default=False,
         help='if verbose, print all status updates')
@@ -178,6 +187,8 @@ if __name__ == '__main__':
         required=False,
         default=(),
         help='tuple of (iti,isi) experiments to train models on; e.g. --experiments "((1,2),(2,4))"')
+    parser.add_argument('--share_seed', action='store_true',
+        help='if provided, models will share the same initial weights across all experiments')
     args = parser.parse_args()
     print(args)
     main(args)

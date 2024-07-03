@@ -28,8 +28,8 @@ def get_all_matching_results(pattern, check_args=True):
         return results
 
     # ensure args are all the same across matching results
-    keys_to_check = ['ntraining_trials', 'fixed_ntrials_per_episode', 'fixed_episode_length', 'hidden_size', 'gamma', 'lr']
-    args = [tuple(res['args'][k] for k in keys_to_check) for res in results]
+    keys_to_check = ['ntraining_trials', 'fixed_ntrials_per_episode', 'fixed_episode_length', 'hidden_size', 'gamma', 'lr', 'optimizer']
+    args = [tuple(res['args'][k] for k in keys_to_check if k in res['args']) for res in results]
     if len(set(args)) > 1:
         print(f'ERROR: args are not all the same across matching results: {args}')
         return [], None
@@ -40,13 +40,16 @@ def get_all_matching_results(pattern, check_args=True):
 
 #%% load results
 
-results, args = get_all_matching_results('data/temporal-scaling_*.pickle')
+results, args = get_all_matching_results('data/temporal-scaling_385*.pickle')
 
 #%% recreate the key Gallistel & Gibbons plots
 
-thresh = 0.35 # to define time to learning
+thresh = 0.1 # to define time to learning
 xnse = 0.1 # noise added for jitter
 clrs = {'I/T fixed': 'blue', 'I fixed': 'orange'}
+
+fixedIoT = 5; fixedI = 24
+fixedIoT = 10; fixedI = 48
 
 PtsT = {}
 PtsIoT = []
@@ -58,9 +61,9 @@ for key, items in results.items():
 
     ys = np.vstack([item['RPE_resps'][:,1:].mean(axis=1) for item in items])
 
-    if IoT == 5:
+    if IoT == fixedIoT:
         grp = 'I/T fixed'
-    elif I == 24:
+    elif I == fixedI:
         grp = 'I fixed'
     else:
         grp = 'other'
@@ -106,11 +109,11 @@ plt.legend()
 
 plt.subplot(nrows,ncols,c); c += 1
 pts = np.vstack(PtsIoT)
-xs = pts[:,0]
-xsa = np.unique((pts[:,0]).astype(int))
+xss = pts[:,0].astype(int)
+xsa = np.unique(xss)
 mus = []
 for x in xsa:
-    ys = pts[pts[:,0] == x,1]
+    ys = pts[xss == x,1]
     mu = np.median(ys); lb = np.percentile(ys, 25); ub = np.percentile(ys, 75)
     # mu = np.mean(ys); se = np.std(ys)/np.sqrt(len(ys)); lb = mu-se; ub = mu+se
     mus.append(mu)
@@ -155,22 +158,22 @@ plt.xscale('log')
 xsa = np.unique(xsas).astype(int)
 plt.xticks(ticks=xsa, labels=xsa, rotation=90)
 plt.minorticks_off()
-plt.legend()
+plt.legend(fontsize=6)
 plt.tight_layout()
 
 #%%
 
-showLoss = True
+showLoss = False
 
-plt.figure(figsize=(6.5,3))
-c = 1
+ncols = 5; nrows = 2
+plt.figure(figsize=(3*ncols,3*nrows)); c = 1
 for key, items in results.items():
     I, T = key
     IoT = I/T
-    if I != 24:
-        continue
-    # if IoT != 5:
+    # if I != 48:
     #     continue
+    if IoT != 10:
+        continue
 
     if showLoss:
         ys = np.vstack([item['scores'] for item in items])
@@ -178,9 +181,11 @@ for key, items in results.items():
         ys = np.vstack([item['RPE_resps'].mean(axis=1) for item in items])
         # ys = np.vstack([item['RPE_resps'][:,1:].mean(axis=1) for item in items])
         vs = [np.where(y > thresh)[0][0] for y in ys]
-        plt.subplot(2,3,6); plt.plot([T]*len(vs), vs, '.')
+        plt.subplot(nrows,ncols,10); plt.plot([T]*len(vs), vs, '.')
 
-    plt.subplot(2,3,c); c+=1
+    if not showLoss and c == nrows*ncols:
+        continue
+    plt.subplot(nrows,ncols,c); c+=1
     plt.plot(ys.T)
     # [plt.plot(v, thresh, '.') for v in vs]
     plt.title(key, fontsize=8)
