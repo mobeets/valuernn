@@ -31,8 +31,9 @@ def get_experiments_by_id(id, default_exp):
         return ((15,6), (20,6), (30,6), (40,6), (60,6))
     elif id == 5: # fixed T = 6, larger I/T
         return ((72,6), (90,6), (120,6), (150,6), (180,6))
-    elif id == 6: # Burke 2023 task with time step = 0.25s
-        return ((48*5,5), (480*5,5))
+    elif id == 6: # ~ Burke 2023 task with time step = 0.25s
+        # n.b. had to change 48 -> 29 so we can have equal session lengths
+        return ((29*5,5), (290*5,5))
     elif id == 7: # fixed I/T = 10
         return ((30,3), (40,4), (60,6), (80,8), (120,12))
     elif id == 8: # fixed I == 48
