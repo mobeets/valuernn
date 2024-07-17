@@ -212,11 +212,13 @@ class ValueRNN(nn.Module):
                 nonlinearity = 'tanh' if ((self.recurrent_cell.lower() == 'rnn') or (name == 'new')) else 'sigmoid'
                 nn.init.xavier_uniform_(weight_ih.data[i:(i+self.hidden_size)], gain=nn.init.calculate_gain(nonlinearity)) # glorot_uniform
 
-    def reset(self, initialization_gain=None):
+    def reset(self, initialization_gain=None, seed=None):
         self.bias.data *= 0
         if self.learn_initial_state:
             self.initial_state.data *= 0
 
+        if seed is not None:
+            torch.manual_seed(seed)
         for layer in self.children():
            if hasattr(layer, 'reset_parameters'):
                layer.reset_parameters()

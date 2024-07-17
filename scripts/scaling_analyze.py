@@ -40,15 +40,15 @@ def get_all_matching_results(pattern, check_args=True):
 
 #%% load results
 
-results, args = get_all_matching_results('data/temporal-scaling_385*.pickle')
+results, args = get_all_matching_results('data/temporal-scaling_3856*.pickle')
 
 #%% recreate the key Gallistel & Gibbons plots
 
-thresh = 0.1 # to define time to learning
+thresh = 0.3 # to define time to learning
 xnse = 0.1 # noise added for jitter
-clrs = {'I/T fixed': 'blue', 'I fixed': 'orange'}
+clrs = {'I/T fixed': 'blue', 'I fixed': 'orange'}#, 'other': 'red'}
 
-fixedIoT = 5; fixedI = 24
+# fixedIoT = 5; fixedI = 24
 fixedIoT = 10; fixedI = 48
 
 PtsT = {}
@@ -80,9 +80,10 @@ for key, items in results.items():
         PtsIoT.append((IoT, y))
         PtsAll.append((I, T, IoT, y))
 
-ncols = 3; nrows = 1
+ncols = 2; nrows = 2
 plt.figure(figsize=(3*ncols,3*nrows)); c = 1
 plt.subplot(nrows,ncols,c); c += 1
+xsas = []
 for grp, pts in PtsT.items():
     if grp not in clrs:
         continue
@@ -99,30 +100,45 @@ for grp, pts in PtsT.items():
         plt.scatter(xs, ys, s=3, c=clrs[grp], alpha=0.8)
         plt.plot(x, mu, 'o', color=clrs[grp], markeredgecolor='k')
         plt.plot(x * np.ones(2), [lb, ub], 'k-', zorder=-1)
-    plt.plot(xsa, mus, '-', c=clrs[grp], zorder=-1, label=grp)
+    lbl = f'{grp}={fixedIoT}' if grp == 'I/T fixed' else f'{grp}={fixedI}'
+    plt.plot(xsa, mus, '-', c=clrs[grp], zorder=-1, label=lbl.replace(' fixed', ''))
+    xsas.append(xsa)
+xsa = np.hstack(xsas)
 
 plt.xlabel('T = Delay of Reinforcement')
 plt.ylabel('Reinforcements to Acquisition')
 plt.xticks(ticks=xsa, labels=[int(x) for x in xsa])
 # plt.yscale('log')
-plt.legend()
+plt.legend(fontsize=8)
 
 plt.subplot(nrows,ncols,c); c += 1
-pts = np.vstack(PtsIoT)
-xss = pts[:,0].astype(int)
+# pts = np.vstack(PtsIoT)
+pts = np.vstack(PtsAll)
+gs = pts[:,0].astype(int)
+grps = np.unique(gs)
+xss = pts[:,2].astype(int)
 xsa = np.unique(xss)
-mus = []
-for x in xsa:
-    ys = pts[xss == x,1]
-    mu = np.median(ys); lb = np.percentile(ys, 25); ub = np.percentile(ys, 75)
-    # mu = np.mean(ys); se = np.std(ys)/np.sqrt(len(ys)); lb = mu-se; ub = mu+se
-    mus.append(mu)
+for grp in grps:
+    ix = (gs == grp)
+    mus = []
+    xsas = []
+    for x in xsa:
+        ixc = ix & (xss == x)
+        if ixc.sum() < 2: # need at least two to connect lines
+            continue
+        ys = pts[ixc,-1]
+        mu = np.median(ys); lb = np.percentile(ys, 25); ub = np.percentile(ys, 75)
+        # mu = np.mean(ys); se = np.std(ys)/np.sqrt(len(ys)); lb = mu-se; ub = mu+se
+        mus.append(mu)
+        xsas.append(x)
 
-    xs = x * np.ones(len(ys)) + xnse*np.random.randn(len(ys))
-    plt.scatter(xs, ys, s=3, c='k', alpha=0.8)
-    plt.plot(x, mu, 'o', color='k', markeredgecolor='k')
-    plt.plot(x * np.ones(2), [lb, ub], 'k-', zorder=-1)
-plt.plot(xsa, mus, '-', c='k', zorder=-1, label=grp)
+        xs = x * np.ones(len(ys)) + xnse*np.random.randn(len(ys))
+        plt.scatter(xs, ys, s=3, c='k', alpha=0.8)
+        # plt.plot(x, mu, 'o', color='k', markeredgecolor='k')
+        plt.plot(x * np.ones(2), [lb, ub], 'k-', zorder=-1)
+    if len(mus) < 2:
+        continue
+    plt.plot(xsas, mus, 'o-', zorder=-1, label=f'I={grp}')
 
 plt.xlabel('I/T')
 plt.ylabel('Reinforcements to Acquisition')
@@ -132,6 +148,7 @@ plt.xticks(ticks=xsa, labels=xsa, rotation=90)
 plt.minorticks_off()
 yticks = [700,500,300]
 plt.yticks(ticks=yticks, labels=yticks)
+plt.legend(fontsize=8)
 
 plt.subplot(nrows,ncols,c); c += 1
 pts = np.vstack(PtsAll)
@@ -158,7 +175,8 @@ plt.xscale('log')
 xsa = np.unique(xsas).astype(int)
 plt.xticks(ticks=xsa, labels=xsa, rotation=90)
 plt.minorticks_off()
-plt.legend(fontsize=6)
+plt.legend(fontsize=8)
+
 plt.tight_layout()
 
 #%%

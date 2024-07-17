@@ -74,11 +74,12 @@ def make_model(Es, args):
 
 def train_models(model, Es, args):
     results = []
-    model.reset()
+    model.reset(seed=args['seed'])
     W0 = model.checkpoint_weights()
     for key, E in Es.items():
-        if args['share_seed']:
+        if args['seed'] is not None:
             model.restore_weights(W0)
+            # could say model.reset(args['seed']), but let's be direct
         else:
             model.reset()
         E.make_trials()
@@ -188,8 +189,8 @@ if __name__ == '__main__':
         required=False,
         default=(),
         help='tuple of (iti,isi) experiments to train models on; e.g. --experiments "((1,2),(2,4))"')
-    parser.add_argument('--share_seed', action='store_true',
-        help='if provided, models will share the same initial weights across all experiments')
+    parser.add_argument('--seed', type=int,
+        help='if provided, models will have the same initial weights across all experiments')
     args = parser.parse_args()
     print(args)
     main(args)
