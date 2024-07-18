@@ -40,7 +40,16 @@ def get_all_matching_results(pattern, check_args=True):
 
 #%% load results
 
-results, args = get_all_matching_results('data/temporal-scaling_3856*.pickle')
+results, args = get_all_matching_results('data/temporal-scaling_40277*.pickle')
+
+# results2, args = get_all_matching_results('data/temporal-scaling_3856*.pickle')
+# results0 = {}
+# for res in [results, results2]:
+#     for key, items in res.items():
+#         if key not in results0:
+#             results0[key] = []
+#         results0[key].extend(items)
+# results = results0
 
 #%% recreate the key Gallistel & Gibbons plots
 
@@ -58,6 +67,7 @@ for key, items in results.items():
     I, T = key
     IoT = I/T
     C = I+T # cycle length
+    print(I, T, len(items))
 
     ys = np.vstack([item['RPE_resps'][:,1:].mean(axis=1) for item in items])
 
@@ -213,6 +223,45 @@ for key, items in results.items():
         plt.plot(plt.xlim(), thresh*np.ones(2), 'k-', zorder=-1, alpha=0.5)
     if c == 2:
         plt.xlabel('# reinforcements', fontsize=8)
+        plt.ylabel('loss' if showLoss else 'RPE', fontsize=8)
+
+plt.tight_layout()
+
+#%%
+
+results, args = get_all_matching_results('data/temporal-scaling_burke_40278*.pickle')
+
+#%% plot burke results
+
+showLoss = False
+ncols = 3; nrows = 1
+plt.figure(figsize=(3*ncols,3*nrows)); c = 1
+
+for key, items in results.items():
+    I, T = key
+    IoT = I/T
+    print(I, T, IoT)
+
+    if showLoss:
+        ys = np.vstack([item['scores'] for item in items])
+    else:
+        ys = np.vstack([item['RPE_resps'].mean(axis=1) for item in items])
+        # ys = np.vstack([item['RPE_resps'][:,1:].mean(axis=1) for item in items])
+        vs = [np.where(y > thresh)[0][0] for y in ys]
+        plt.subplot(nrows,ncols,nrows*ncols); plt.plot([T]*len(vs), vs, '.')
+
+    if not showLoss and c == nrows*ncols:
+        continue
+    plt.subplot(nrows,ncols,c); c+=1
+    plt.plot(ys.T)
+    # [plt.plot(v, thresh, '.') for v in vs]
+    plt.title(key, fontsize=8)
+    plt.xticks(fontsize=8)
+    plt.yticks(fontsize=8)
+    if not showLoss:
+        plt.plot(plt.xlim(), thresh*np.ones(2), 'k-', zorder=-1, alpha=0.5)
+    if c == 2:
+        plt.xlabel('# episodes', fontsize=8)
         plt.ylabel('loss' if showLoss else 'RPE', fontsize=8)
 
 plt.tight_layout()

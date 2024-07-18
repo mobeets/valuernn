@@ -33,6 +33,7 @@ def get_experiments_by_id(id, default_exp):
         return ((72,6), (90,6), (120,6), (150,6), (180,6))
     elif id == 6: # ~ Burke 2023 task with time step = 0.25s
         # n.b. had to change 48 -> 29 so we can have equal session lengths
+        # note: to get fixed_episode_length, use math.lcm(iti1+isi1, iti2+isi2)
         return ((29*5,5), (290*5,5))
     elif id == 7: # fixed I/T = 10
         return ((30,3), (40,4), (60,6), (80,8), (120,12))
@@ -44,6 +45,10 @@ def get_experiments_by_id(id, default_exp):
         return ((150,15), (180,18), (240,24), (300,30), (400,40))
     elif id == 11: # fixed I == 48, larger T
         return ((48,15), (48,18), (48,24), (48,30), (48,40))
+    elif id == 12: # fixed I/T = 5, larger T
+        return ((75,15), (90,18), (120,24), (150,30), (200,40))
+    elif id == 13: # fixed I = 24, larger T
+        return ((24,15), (24,18), (24,24), (24,30), (24,40))
     else:
         raise Exception('experiments id not recognized')
     pass
