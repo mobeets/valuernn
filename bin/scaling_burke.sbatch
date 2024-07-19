@@ -12,4 +12,4 @@ module load python/3.10.9-fasrc01
 source activate pt38
 
 # Run program
-srun -c 1 python quick_scaling.py burke_"${SLURM_JOB_ID}"_"${SLURM_ARRAY_TASK_ID}" -t 6 --seed ${SLURM_ARRAY_TASK_ID} --fixed_episode_length 14550
+srun -c 1 python quick_scaling.py burke_"${SLURM_JOB_ID}"_"${SLURM_ARRAY_TASK_ID}" -t 6 --seed ${SLURM_ARRAY_TASK_ID} --fixed_episode_length 14550 --nepochs 1500

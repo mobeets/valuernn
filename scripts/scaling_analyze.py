@@ -40,7 +40,8 @@ def get_all_matching_results(pattern, check_args=True):
 
 #%% load results
 
-results, args = get_all_matching_results('data/temporal-scaling_40277*.pickle')
+# results, args = get_all_matching_results('data/temporal-scaling_40277*.pickle')
+results, args = get_all_matching_results('data/temporal-scaling_404*.pickle')
 
 # results2, args = get_all_matching_results('data/temporal-scaling_3856*.pickle')
 # results0 = {}
@@ -53,12 +54,23 @@ results, args = get_all_matching_results('data/temporal-scaling_40277*.pickle')
 
 #%% recreate the key Gallistel & Gibbons plots
 
-thresh = 0.3 # to define time to learning
+thresh = 0.2 # to define time to learning
 xnse = 0.1 # noise added for jitter
 clrs = {'I/T fixed': 'blue', 'I fixed': 'orange'}#, 'other': 'red'}
 
-# fixedIoT = 5; fixedI = 24
-fixedIoT = 10; fixedI = 48
+counts = {'I': {}, 'I/T': {}}
+for key, items in results.items():
+    I, T = key
+    IoT = I/T
+    if I not in counts['I']:
+        counts['I'][I] = 0
+    if IoT not in counts['I/T']:
+        counts['I/T'][IoT] = 0
+    counts['I'][I] += len(items)
+    counts['I/T'][IoT] += len(items)
+fixedI = max(counts['I'].items(), key=lambda x: x[1])[0]
+fixedIoT = max(counts['I/T'].items(), key=lambda x: x[1])[0]
+print(f'{fixedI=}, {fixedIoT=}')
 
 PtsT = {}
 PtsIoT = []
@@ -67,7 +79,7 @@ for key, items in results.items():
     I, T = key
     IoT = I/T
     C = I+T # cycle length
-    print(I, T, len(items))
+    # print(I, T, len(items))
 
     ys = np.vstack([item['RPE_resps'][:,1:].mean(axis=1) for item in items])
 
@@ -150,6 +162,7 @@ for grp in grps:
         continue
     plt.plot(xsas, mus, 'o-', zorder=-1, label=f'I={grp}')
 
+xsa = [x for x in xsa if x > 0]
 plt.xlabel('I/T')
 plt.ylabel('Reinforcements to Acquisition')
 plt.xscale('log')
@@ -189,55 +202,18 @@ plt.legend(fontsize=8)
 
 plt.tight_layout()
 
-#%%
+#%% visualize individual models
 
 showLoss = False
+showTrials = False
 
-ncols = 5; nrows = 2
-plt.figure(figsize=(3*ncols,3*nrows)); c = 1
-for key, items in results.items():
-    I, T = key
-    IoT = I/T
-    # if I != 48:
-    #     continue
-    if IoT != 10:
-        continue
-
-    if showLoss:
-        ys = np.vstack([item['scores'] for item in items])
-    else:
-        ys = np.vstack([item['RPE_resps'].mean(axis=1) for item in items])
-        # ys = np.vstack([item['RPE_resps'][:,1:].mean(axis=1) for item in items])
-        vs = [np.where(y > thresh)[0][0] for y in ys]
-        plt.subplot(nrows,ncols,10); plt.plot([T]*len(vs), vs, '.')
-
-    if not showLoss and c == nrows*ncols:
-        continue
-    plt.subplot(nrows,ncols,c); c+=1
-    plt.plot(ys.T)
-    # [plt.plot(v, thresh, '.') for v in vs]
-    plt.title(key, fontsize=8)
-    plt.xticks(fontsize=8)
-    plt.yticks(fontsize=8)
-    if not showLoss:
-        plt.plot(plt.xlim(), thresh*np.ones(2), 'k-', zorder=-1, alpha=0.5)
-    if c == 2:
-        plt.xlabel('# reinforcements', fontsize=8)
-        plt.ylabel('loss' if showLoss else 'RPE', fontsize=8)
-
-plt.tight_layout()
-
-#%%
-
-results, args = get_all_matching_results('data/temporal-scaling_burke_40278*.pickle')
-
-#%% plot burke results
-
-showLoss = False
 ncols = 3; nrows = 1
-plt.figure(figsize=(3*ncols,3*nrows)); c = 1
+# ncols = 5; nrows = 2
 
-for key, items in results.items():
+plt.figure(figsize=(3*ncols,3*nrows)); c = 1
+keys = sorted(results.keys())
+for key in keys:
+    items = results[key]
     I, T = key
     IoT = I/T
     print(I, T, IoT)
@@ -245,10 +221,16 @@ for key, items in results.items():
     if showLoss:
         ys = np.vstack([item['scores'] for item in items])
     else:
-        ys = np.vstack([item['RPE_resps'].mean(axis=1) for item in items])
+        if showTrials:
+            ys = np.vstack([item['RPE_resps'].flatten() for item in items])
+        else:
+            ys = np.vstack([item['RPE_resps'].mean(axis=1) for item in items])
+
         # ys = np.vstack([item['RPE_resps'][:,1:].mean(axis=1) for item in items])
-        vs = [np.where(y > thresh)[0][0] for y in ys]
+        vs = [np.where(y > thresh)[0] for y in ys]
+        vs = [v[0] for v in vs if len(v)]
         plt.subplot(nrows,ncols,nrows*ncols); plt.plot([T]*len(vs), vs, '.')
+    print(key, ys.shape)
 
     if not showLoss and c == nrows*ncols:
         continue
@@ -261,7 +243,13 @@ for key, items in results.items():
     if not showLoss:
         plt.plot(plt.xlim(), thresh*np.ones(2), 'k-', zorder=-1, alpha=0.5)
     if c == 2:
-        plt.xlabel('# episodes', fontsize=8)
+        plt.xlabel('# trials' if showTrials else '# episodes', fontsize=8)
         plt.ylabel('loss' if showLoss else 'RPE', fontsize=8)
+    # plt.xlim([0, 1300]); plt.ylim([-0.2, 1.0])
 
 plt.tight_layout()
+
+#%%
+
+# results, args = get_all_matching_results('data/temporal-scaling_burke_40278*.pickle')
+results, args = get_all_matching_results('data/temporal-scaling_burke_403*.pickle')

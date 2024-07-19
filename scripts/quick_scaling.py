@@ -89,7 +89,7 @@ def train_models(model, Es, args):
             model.reset()
         E.make_trials()
         dataloader = make_dataloader(E, batch_size=1)
-        epochs = int(args['ntraining_trials'] / E.ntrials)
+        epochs = args['nepochs'] if args['nepochs'] > 0 else int(args['ntraining_trials'] / E.ntrials)
         if args.get('verbose', True):
             print(f'----- {key}, epochs={epochs} -----')
         if args['optimizer'] == 'adam':
@@ -160,8 +160,11 @@ if __name__ == '__main__':
     parser.add_argument('run_name', type=str,
         help='tag for current run')
     parser.add_argument('--ntraining_trials', type=int,
-        default=12500,
+        default=20000,
         help='number of total trials to train on each experiment')
+    parser.add_argument('--nepochs', type=int,
+        default=-1,
+        help='if positive, number of epochs to train on each experiment (ignoring --ntraining_trials)')
     parser.add_argument('--fixed_ntrials_per_episode', type=int,
         default=10,
         help='number of (identical) trials in an episode (aka session). note that gradient steps are taken at the end of each episode (which for our purposes is the same as an epoch)')
