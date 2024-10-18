@@ -17,6 +17,7 @@ from tasks.example import Example
 def get_experiments_by_id(id, default_exp):
     """
     n.b. experiments are encoded as ((iti,isi), (iti,isi), ...)
+    4,5,8,9,11,13
     """
     if id == 0:
         if len(default_exp) == 0:
@@ -34,7 +35,6 @@ def get_experiments_by_id(id, default_exp):
         return ((72,6), (90,6), (120,6), (150,6), (180,6))
     elif id == 6: # ~ Burke 2023 task with time step = 0.25s
         # n.b. had to change 48 -> 29 so we can have equal session lengths
-        # note: to get fixed_episode_length, use math.lcm(iti1+isi1, iti2+isi2)
         return ((29*5,5), (290*5,5))
     elif id == 7: # fixed I/T = 10
         return ((30,3), (40,4), (60,6), (80,8), (120,12))
@@ -50,9 +50,26 @@ def get_experiments_by_id(id, default_exp):
         return ((75,15), (90,18), (120,24), (150,30), (200,40))
     elif id == 13: # fixed I = 24, larger T
         return ((24,15), (24,18), (24,24), (24,30), (24,40))
+    elif id == 14: # fixed I = 24, all T
+        return ((24,4), (24,6), (24,8), (24,16), (24,18), (24,24), (24,32), (24,46), (24,60))
+    elif id == 15: # fixed I/T = 10, all T
+        return ((30,3), (40,4), (60,6), (80,8), (120,12), (160,16), (180,18), (240,24), (320,32), (480,48))
     else:
         raise Exception('experiments id not recognized')
     pass
+
+def check_for_ways_to_reduce_ep_length(experiments):
+    trial_lengths = [isi+iti for isi,iti in experiments]
+    ep_lengths = []
+    for trial_length in trial_lengths:
+        other_trial_lengths = [x for x in trial_lengths if x!=trial_length]
+        ep_lengths.append(math.lcm(*other_trial_lengths))
+    cur_ep_length = math.lcm(*trial_lengths)
+    better_ep_length = min(ep_lengths)
+    if better_ep_length < cur_ep_length:
+        ind = np.argmin(ep_lengths)
+        iti, isi = experiments[ind]
+        print(f'Could reduce the episode length from {cur_ep_length=} to {better_ep_length=} by removing/modifying ({iti=}, {isi=})')
 
 def get_fixed_episode_length(experiments, args):
     """
@@ -73,6 +90,7 @@ def get_fixed_episode_length(experiments, args):
 
     fixed_episode_length = math.lcm(*trial_lengths)
     print(f"WARNING: Using {fixed_episode_length=} instead of {old_fixed_episode_length=} so we can evenly divide {experiments=} into integer numbers of trials.")
+    check_for_ways_to_reduce_ep_length(experiments)
     return fixed_episode_length
 
 def make_trials(args):
