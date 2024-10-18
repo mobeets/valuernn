@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
 def pad_collate(batch):
     try:

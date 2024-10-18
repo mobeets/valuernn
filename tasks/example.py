@@ -5,13 +5,14 @@ from .trial import Trial
 device = torch.device('cpu')
 
 class Example(Dataset):
-    def __init__(self, ncues=2, iti=10, isis=None, ntrials=1000, ntrials_per_episode=20, do_trace_conditioning=True):
+    def __init__(self, ncues=2, iti=10, isis=None, ntrials=1000, ntrials_per_episode=20, do_trace_conditioning=True, jitter=0):
         self.ntrials = ntrials
         self.ntrials_per_episode = ntrials_per_episode
         self.iti = iti # number of time steps between trials
         self.isis = (5,)*ncues if isis is None else isis
         self.ncues = ncues # number of distinct cues (CS)
         self.nrewards = 1 # number of distinct reward types (US)
+        self.jitter = jitter # jitter in reward time
         self.do_trace_conditioning = do_trace_conditioning # else delay conditioning
         assert len(self.isis) == self.ncues, 'isis must have length equal to ncues'
         self.make_trials()
@@ -22,8 +23,8 @@ class Example(Dataset):
         iti = self.iti # intertrial interval
         isi = self.isis[cue] # reward delay
         reward_size = 1.0
-        # iti += np.random.choice([-1,0,1]) # add jitter
-        # isi += np.random.choice([-1,0,1]) # add jitter
+        if self.jitter > 0:
+            isi += np.random.choice(np.arange(-self.jitter, self.jitter+1)) # add jitter
         return Trial(cue=cue, iti=iti, isi=isi, reward_size=reward_size, show_cue=True, ncues=self.ncues, do_trace_conditioning=self.do_trace_conditioning)
     
     def make_trials(self):

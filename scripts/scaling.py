@@ -18,18 +18,21 @@ mpl.rcParams['axes.spines.top'] = False
 
 #%% make trials
 
-ntrials_per_episode = 10
+jitter = 2
+ntrials_per_episode = 20
 do_trace_conditioning = False # if False, do trace conditioning
 
 # (I,T)
 # model_params = [(10,2), (20,4), (30,6), (40,8), (24,2), (24,4), (24,6), (24,8)]
 # model_params = [(15,3), (20,4), (30,6), (45,9), (24,3), (24,4), (24,6), (24,9)]
 model_params = [(15,3), (20,4), (30,6), (40,8), (60,12), (24,3), (24,4), (24,6), (24,8), (24,12)]
+model_params = [(120,12)]
 Es = {}
 for iti, isi in model_params:
     key = 'T={}, I={}, I/T={}'.format(isi, iti, iti/isi)
     print(key)
-    Es[key] = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=ntrials_per_episode, ntrials_per_episode=ntrials_per_episode, do_trace_conditioning=do_trace_conditioning)
+    Es[key] = Example(ncues=1, iti=iti-1, isis=[isi], 
+    jitter=jitter, ntrials=ntrials_per_episode, ntrials_per_episode=ntrials_per_episode, do_trace_conditioning=do_trace_conditioning)
 
 print(len(Es))
 
@@ -148,11 +151,11 @@ model = ValueRNN(input_size=E.ncues + E.nrewards,
 
 #%% train model
 
-nreps = 6
+nreps = 1
 batch_size = 1
 # lr = 0.0005; total_ntraining_trials = 5000
 # lr = 0.001; total_ntraining_trials = 10000
-lr = 0.0003; total_ntraining_trials = 12500
+lr = 0.0003; total_ntraining_trials = 15000
 
 # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 # nreps = 3; total_ntraining_trials = 3000
@@ -194,6 +197,27 @@ for n in range(nreps):
         RPE_resps = np.hstack(RPE_resps).T
         RPE_resp_avg = RPE_resps.mean(axis=1)
         results[key].append({'scores': scores.copy(), 'weights': weights, 'CS_resp_avg': CS_resp_avg, 'RPE_resp_avg': RPE_resp_avg})
+
+#%% visualize value and RPE within trial throughout training
+
+isi = 12
+CS_resps = []
+RPE_resps = []
+for W in weights:
+    model.restore_weights(W)
+    # probe model to get CS response
+    trials = probe_model(model, dataloader)[1:]
+    CS_resps_cur = np.hstack([trial.value for trial in trials if trial.isi == isi]).mean(axis=1)
+    RPE_resps_cur = np.hstack([trial.rpe for trial in trials if trial.isi == isi]).mean(axis=1)
+    CS_resps.append(CS_resps_cur)
+    RPE_resps.append(RPE_resps_cur)
+
+CS_resps = np.vstack(CS_resps)
+RPE_resps = np.vstack(RPE_resps)
+
+plt.plot(RPE_resps[::5,110:].T), plt.xlabel('time in trial'), plt.ylabel('RPE')
+
+plt.plot([rs[118] for rs in RPE_resps]), plt.plot([rs[118:-1].sum() for rs in RPE_resps]), plt.xlabel('# episodes'), plt.ylabel('RPE statistic')
 
 #%% recreate the key Gallistel & Gibbons plots
 

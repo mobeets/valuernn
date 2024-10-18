@@ -4,6 +4,7 @@ import os.path
 import pickle
 import datetime
 import argparse
+import math
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -53,19 +54,38 @@ def get_experiments_by_id(id, default_exp):
         raise Exception('experiments id not recognized')
     pass
 
+def get_fixed_episode_length(experiments, args):
+    """
+    if using a fixed episode length, we must ensure that all experiments
+        will have an integer number of trials, where trial length = isi+iti
+    if the provided fixed_episode_length is invalid based on the above,
+        we will use the least common multiple of all isi+iti
+    """
+    fixed_episode_length = args['fixed_episode_length']
+    if fixed_episode_length < 0:
+        return fixed_episode_length
+    
+    is_int = lambda x: x == int(x)
+    trial_lengths = [isi+iti for isi,iti in experiments]
+    if all([is_int(fixed_episode_length / trial_length) for trial_length in trial_lengths]):
+        return fixed_episode_length
+    old_fixed_episode_length = fixed_episode_length
+
+    fixed_episode_length = math.lcm(*trial_lengths)
+    print(f"WARNING: Using {fixed_episode_length=} instead of {old_fixed_episode_length=} so we can evenly divide {experiments=} into integer numbers of trials.")
+    return fixed_episode_length
+
 def make_trials(args):
     Es = {}
     experiments = get_experiments_by_id(args['tasks_by_id'], args['experiments'])
+    fixed_episode_length = get_fixed_episode_length(experiments, args)
     for iti, isi in experiments:
         print('I={}, T={}, I/T={}'.format(iti, isi, iti/isi))
         key = (iti, isi)
-        if args['fixed_episode_length'] < 0:
+        if fixed_episode_length < 0:
             E = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=args['fixed_ntrials_per_episode'], ntrials_per_episode=args['fixed_ntrials_per_episode'], do_trace_conditioning=False)
         else:
-            ntrials = args['fixed_episode_length'] / (iti+isi)
-            if ntrials != int(ntrials):
-                raise Exception(f"Error: {args['fixed_episode_length']=} cannot be evenly divided into trials with {isi=} and {iti=}")
-            ntrials = int(ntrials)
+            ntrials = int(fixed_episode_length / (iti+isi))
             E = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=ntrials, ntrials_per_episode=ntrials, do_trace_conditioning=False)
         Es[key] = E
     return Es
@@ -130,6 +150,9 @@ def main(args):
     if args['verbose']:
         print('making trials...')
     Es = make_trials(args)
+    if args['make_trials_only']:
+        print('Quitting.')
+        return
     
     if args['verbose']:
         print('creating model...')
@@ -189,7 +212,10 @@ if __name__ == '__main__':
         help='name of optimizer used to find gradient step')
     parser.add_argument('--verbose', action='store_true',
         default=False,
-        help='if verbose, print all status updates')
+        help='if True, prints all status updates')
+    parser.add_argument('--make_trials_only', action='store_true',
+        default=False,
+        help='if True, makes all trials and then quits')
     parser.add_argument('-t', '--tasks_by_id', type=int,
         default=0,
         help='id of experiments (if 0, we use --experiments)')
