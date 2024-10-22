@@ -104,6 +104,8 @@ def trim_experiment(E, fixed_episode_length):
     trial_durs = np.array([len(trial) for trial in E.episodes[0]])
     trial_dur_cumsum = np.cumsum(trial_durs)
     assert sum(trial_durs[:-1]) < fixed_episode_length
+    if sum(trial_durs) == fixed_episode_length:
+        return E, 0
     assert sum(trial_durs) > fixed_episode_length
     n_last = fixed_episode_length - sum(trial_durs[:-1])
     E.episodes[0][-1].X = E.episodes[0][-1].X[:n_last]
@@ -126,6 +128,7 @@ def make_trials(args):
                 # trim last trial based on fixed_episode_length
                 E, n_trimmed = trim_experiment(E, fixed_episode_length)
                 print(f'WARNING: Trimed {n_trimmed} time steps off of last trial of {iti=}, {isi=} experiment')
+            print(len(E.episodes[0]))
         Es[key] = E
     return Es
 
