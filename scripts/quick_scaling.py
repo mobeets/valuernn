@@ -80,31 +80,52 @@ def get_fixed_episode_length(experiments, args):
     """
     fixed_episode_length = args['fixed_episode_length']
     if fixed_episode_length < 0:
-        return fixed_episode_length
+        return fixed_episode_length, True
     
     is_int = lambda x: x == int(x)
     trial_lengths = [isi+iti for isi,iti in experiments]
     if all([is_int(fixed_episode_length / trial_length) for trial_length in trial_lengths]):
-        return fixed_episode_length
-    old_fixed_episode_length = fixed_episode_length
+        # all episodes divide evenly; no problems
+        return fixed_episode_length, True
 
+    if not args['enforce_complete_trials']:
+        # who cares if episodes can't be evenly divided into complete trials
+        return fixed_episode_length, False
+
+    # find a better fixed episode length
+    old_fixed_episode_length = fixed_episode_length
     fixed_episode_length = math.lcm(*trial_lengths)
     print(f"WARNING: Using {fixed_episode_length=} instead of {old_fixed_episode_length=} so we can evenly divide {experiments=} into integer numbers of trials.")
     check_for_ways_to_reduce_ep_length(experiments)
-    return fixed_episode_length
+    return fixed_episode_length, True
+
+def trim_experiment(E, fixed_episode_length):
+    assert len(E.episodes) == 1
+    trial_durs = np.array([len(trial) for trial in E.episodes[0]])
+    trial_dur_cumsum = np.cumsum(trial_durs)
+    assert sum(trial_durs[:-1]) < fixed_episode_length
+    assert sum(trial_durs) > fixed_episode_length
+    n_last = fixed_episode_length - sum(trial_durs[:-1])
+    E.episodes[0][-1].X = E.episodes[0][-1].X[:n_last]
+    E.episodes[0][-1].y = E.episodes[0][-1].y[:n_last]
+    return E, trial_durs[-1] - n_last
 
 def make_trials(args):
     Es = {}
     experiments = get_experiments_by_id(args['tasks_by_id'], args['experiments'])
-    fixed_episode_length = get_fixed_episode_length(experiments, args)
+    fixed_episode_length, divides_evenly = get_fixed_episode_length(experiments, args)
     for iti, isi in experiments:
         print('I={}, T={}, I/T={}'.format(iti, isi, iti/isi))
         key = (iti, isi)
         if fixed_episode_length < 0:
             E = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=args['fixed_ntrials_per_episode'], ntrials_per_episode=args['fixed_ntrials_per_episode'], do_trace_conditioning=False)
         else:
-            ntrials = int(fixed_episode_length / (iti+isi))
+            ntrials = np.ceil(fixed_episode_length / (iti+isi)).astype(int)
             E = Example(ncues=1, iti=iti-1, isis=[isi], ntrials=ntrials, ntrials_per_episode=ntrials, do_trace_conditioning=False)
+            if not divides_evenly:
+                # trim last trial based on fixed_episode_length
+                E, n_trimmed = trim_experiment(E, fixed_episode_length)
+                print(f'WARNING: Trimed {n_trimmed} time steps off of last trial of {iti=}, {isi=} experiment')
         Es[key] = E
     return Es
 
@@ -234,6 +255,9 @@ if __name__ == '__main__':
     parser.add_argument('--make_trials_only', action='store_true',
         default=False,
         help='if True, makes all trials and then quits')
+    parser.add_argument('--enforce_complete_trials', action='store_true',
+        default=False,
+        help='if --fixed_episode_length is positive, but fixed_episode_length does not allow for all experiments to be divided into complete trials, this will pick a better fixed_episode_length.')
     parser.add_argument('-t', '--tasks_by_id', type=int,
         default=0,
         help='id of experiments (if 0, we use --experiments)')

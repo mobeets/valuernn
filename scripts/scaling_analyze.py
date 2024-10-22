@@ -46,16 +46,22 @@ def get_all_matching_results(pattern, check_args=True):
 
 #%% load results
 
-results, args = get_all_matching_results('data/temporal-scaling_40277*.pickle')
-results2, args2 = get_all_matching_results('data/temporal-scaling_404*.pickle')
-ress = [results, results2]
+# results, args = get_all_matching_results('data/temporal-scaling_40277*.pickle')
+# results2, args2 = get_all_matching_results('data/temporal-scaling_404*.pickle')
+# ress = [results, results2]
 
 # results where all sessions have fixed duration:
 results, args = get_all_matching_results('data/temporal-scaling_52313*.pickle')
 ress = [results]
 
+# results where all sessions have fixed duration:
+# results, args = get_all_matching_results('data/temporal-scaling_525024*.pickle')
+# ress = [results]
+
+# burke i think maybe?
 # results2, args = get_all_matching_results('data/temporal-scaling_3856*.pickle')
 
+print(args)
 results0 = {}
 for res in ress:
     for key, items in res.items():
@@ -67,6 +73,7 @@ results = results0
 #%% recreate the key Gallistel & Gibbons plots
 
 thresh = 0.16 # to define time to learning
+# thresh = 0.0
 xnse = 0.1 # noise added for jitter
 clrs = {'I/T fixed': 'blue', 'I fixed': 'orange'}#, 'other': 'red'}
 
@@ -131,6 +138,7 @@ xsas = []
 for grp, pts in PtsT.items():
     if grp not in clrs:
         continue
+    print(grp, len(pts))
     pts = np.vstack(pts)
     xsa = np.unique(pts[:,0])
     mus = []
@@ -253,7 +261,7 @@ plt.tight_layout()
 
 #%% visualize individual models
 
-showLoss = False
+showLoss = True
 showTrials = True # if False, shows episodes
 separateSubplots = False # False for Burke
 
@@ -271,9 +279,8 @@ for j, key in enumerate(keys):
     IoT = I/T
     # print(I, T, IoT)
     
-    if T != 15 or I != 24:
+    if T != 32 or I != 24:
         continue
-    print('here')
     # if I != fixedI:
     #     continue
     # if IoT != fixedIoT:
