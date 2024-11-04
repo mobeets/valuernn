@@ -163,7 +163,7 @@ class ValueRNN(nn.Module):
             if indices is not None:
                 for index in indices:
                     if index > h_t.shape[-1]:
-                        raise Exception("Cannot lesions cell units in LSTM")
+                        raise Exception("Cannot lesion cell units in LSTM")
                     h_t.data[:,:,index] = 0
                     # n.b. can't lesion c_t in isolation b/c h_t depends on c_t
             hs.append(h_t)
@@ -213,6 +213,8 @@ class ValueRNN(nn.Module):
                 nn.init.xavier_uniform_(weight_ih.data[i:(i+self.hidden_size)], gain=nn.init.calculate_gain(nonlinearity)) # glorot_uniform
 
     def reset(self, initialization_gain=None, seed=None):
+        if initialization_gain is None and self.initialization_gain is not None:
+            initialization_gain = self.initialization_gain
         self.bias.data *= 0
         if self.learn_initial_state:
             self.initial_state.data *= 0
