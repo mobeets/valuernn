@@ -35,10 +35,26 @@ def pad_collate(batch):
 def make_dataloader(experiment, batch_size=1):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
-def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.003,
-                             lmbda=0, inactivation_indices=None, print_every=1, reward_is_offset=True):
+def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
+                             lmbda=0, inactivation_indices=None, print_every=100, reward_is_offset=True, window_size=50, stride_size=1, auto_readout_lr=0.0):
+    """
+    trains RNN using truncated backprop through time
+        by providing a window_size (duration over which gradient is computed)
+        and stride_size (time steps before we compute the next gradient)
+    n.b. if window_size is larger than a given episode,
+        we will still take a single gradient step over the entire episode
+    n.b. batch_size must be 1 since we assume this is used for online RNN learning
+    """
     if dataloader.batch_size != 1:
-        raise Exception("batch_size must be 1 when training model step-by-step")
+        raise Exception("batch_size must be 1 when training model with TBPTT")
+    if inactivation_indices is not None:
+        raise NotImplementedError("inactivation_indices not implemented for TBPTT")
+    if auto_readout_lr > 0:
+        raise NotImplementedError('auto_readout_lr not implemented for TBPTT')
+    if stride_size < 1:
+        raise Exception(f'Provided {stride_size=} is invalid; value must be positive')
+    if window_size < 1:
+        raise Exception(f'Provided {window_size=} is invalid; value must be positive')
     
     if model.predict_next_input:
         loss_fn = nn.CrossEntropyLoss()
@@ -51,62 +67,73 @@ def train_model_step_by_step(model, dataloader, epochs=1, optimizer=None, lr=0.0
     weights = []
     losses.append(np.nan)
     weights.append(deepcopy(model.state_dict()))
-    assert inactivation_indices is None, 'inactivation_indices not implemented'
-    episode_losses = []
+    window_losses = []
 
     model.train()
-
     try:
         for k in range(epochs):
-            # n.b. we don't treat epochs as different from episodes
+            # n.b. we treat epochs the same as episodes
+            # so n losses will be reported where n = epochs*nepisodes
             for j, (X, y, x_lengths, trial_lengths, episode) in enumerate(dataloader):
 
                 h = None
                 optimizer.zero_grad() # zero grad between episodes
-                cur_episode_losses = []
-                for i in range(len(X)-1):
-
+                cur_window_losses = []
+                for c, i in enumerate(range(0, max(1, len(X)-window_size-1), stride_size)):
+                    # get the current sliding window of (X,y)
+                    # n.b. we include one time step extra since we trim one off later
+                    X_window = X[i:(i+window_size+1)]
+                    y_window = y[i:(i+window_size+1)]
+                
                     # forward pass
+                    V, hs = model(X_window, h0=h, return_hiddens=True)
+                    V_hat = V[:-1]
                     if model.predict_next_input:
-                        # predict next observation
-                        vhat, h = model(X[i], h0=h)
-                        vtarget = y[i+1 if reward_is_offset else i]
-                        h = h.detach()
-                    else:
-                        # value estimate
-                        vhats, hs = model(X[i:(i+2)], h0=h, return_hiddens=True)
-                        vhat = vhats[0]
-                        vtarget = y[i+1 if reward_is_offset else i] + model.gamma*vhats[1].detach()
-                        h = hs[0].detach().unsqueeze(1)
-                    loss = loss_fn(vhat, vtarget)
+                        V_target = (y_window[1:] if reward_is_offset else y_window[:-1])
+                    else: # value estimate
+                        V_target = (y_window[1:] if reward_is_offset else y_window[:-1]) + model.gamma*V[1:].detach()
+                    h = hs[stride_size-1].detach().unsqueeze(1)
+
+                    # get loss
+                    loss = loss_fn(V_hat, V_target)
+                    loss /= len(V_hat) # when reduction='sum', this makes loss the mean per time step
                     
-                    if lmbda == 0:
-                        # TD(0)
+                    # either zero out gradient for TD(0), or decay it for TD(λ)
+                    if lmbda == 0: # TD(0)
                         optimizer.zero_grad()
-                    else:
-                        # TD(λ)
+                    else: # TD(λ)
                         for p in model.parameters():
                             if p.grad is not None:
                                 p.grad *= model.gamma*lmbda
 
+                    # take gradient step
                     loss.backward()
                     optimizer.step()
-                    cur_episode_losses.append(loss.item())
-
-                episode_losses.append(cur_episode_losses)
-                losses.append(np.mean(cur_episode_losses))
-                if j % print_every == 0:
-                    print('Episode {}, loss: {:0.3f}'.format(len(losses), losses[-1]))
+                    cur_window_losses.append(loss.item())
+                
+                    if c % print_every == 0:
+                        print('Window {}, loss: {:0.3f}'.format(c, cur_window_losses[-1]))
+                
+                window_losses.append(cur_window_losses)
+                losses.append(np.mean(cur_window_losses))
+                weights.append(deepcopy(model.state_dict()))
+                    
     except KeyboardInterrupt:
         pass
     finally:
-        return losses, {'episode_losses': episode_losses}, weights
+        if len(cur_window_losses) > 0:
+            window_losses.append(cur_window_losses)
+            losses.append(np.mean(cur_window_losses))
+            weights.append(deepcopy(model.state_dict()))
+        return losses, {'window_losses': window_losses}, weights
 
 def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0, reward_is_offset=True, auto_readout_lr=0.0, alphas=None):
     if optimizer is None: # no gradient steps are taken
         model.eval()
     else:
         model.train()
+    if inactivation_indices is not None and auto_readout_lr > 0:
+        raise Exception("Cannot provide inactivation_indices and set auto_readout_lr > 0")
 
     train_loss = 0
     n = 0
