@@ -36,7 +36,7 @@ def make_dataloader(experiment, batch_size=1):
     return DataLoader(experiment, batch_size=batch_size, collate_fn=pad_collate)
 
 def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
-                             lmbda=0, inactivation_indices=None, print_every=100, reward_is_offset=True, window_size=50, stride_size=1, auto_readout_lr=0.0):
+                        lmbda=0, inactivation_indices=None, auto_readout_lr=0.0, print_every=100, reward_is_offset=True, window_size=50, stride_size=1, data_saver=None):
     """
     trains RNN using truncated backprop through time
         by providing a window_size (duration over which gradient is computed)
@@ -64,10 +64,10 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
 
     losses = []
-    weights = []
     losses.append(np.nan)
+    weights = []
     weights.append(deepcopy(model.state_dict()))
-    window_losses = []
+    data = []
 
     model.train()
     try:
@@ -76,9 +76,11 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
             # so n losses will be reported where n = epochs*nepisodes
             for j, (X, y, x_lengths, trial_lengths, episode) in enumerate(dataloader):
 
+                finished_episode = False
                 h = None
                 optimizer.zero_grad() # zero grad between episodes
                 cur_window_losses = []
+                cur_data = []
                 for c, i in enumerate(range(0, max(1, len(X)-window_size-1), stride_size)):
                     # get the current sliding window of (X,y)
                     # n.b. we include one time step extra since we trim one off later
@@ -110,22 +112,24 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
                     loss.backward()
                     optimizer.step()
                     cur_window_losses.append(loss.item())
-                
+                    if data_saver is not None:
+                        cur_data.append(data_saver(X_window, y_window, V_hat, loss, model))
                     if c % print_every == 0:
                         print('Window {}, loss: {:0.3f}'.format(c, cur_window_losses[-1]))
                 
-                window_losses.append(cur_window_losses)
+                data.append(cur_data)
                 losses.append(np.mean(cur_window_losses))
                 weights.append(deepcopy(model.state_dict()))
+                finished_episode = True
                     
     except KeyboardInterrupt:
-        pass
-    finally:
-        if len(cur_window_losses) > 0:
-            window_losses.append(cur_window_losses)
+        # log this here, so that if we break before an epoch we don't lose everything
+        if not finished_episode:
+            data.append(cur_data)
             losses.append(np.mean(cur_window_losses))
             weights.append(deepcopy(model.state_dict()))
-        return losses, {'window_losses': window_losses}, weights
+    finally:
+        return losses, data, weights
 
 def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices=None, lmbda=0, reward_is_offset=True, auto_readout_lr=0.0, alphas=None):
     if optimizer is None: # no gradient steps are taken
@@ -188,7 +192,7 @@ def train_epoch(model, dataloader, loss_fn, optimizer=None, inactivation_indices
         batch_losses.append(loss)
         n += 1
     train_loss /= n
-    return train_loss, batch_losses
+    return train_loss, {'batch_losses': batch_losses}
 
 def train_model(model, dataloader=None,
                 experiment=None, batch_size=12, lr=0.003, lmbda=0,
