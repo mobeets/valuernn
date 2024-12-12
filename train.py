@@ -113,7 +113,7 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
                     optimizer.step()
                     cur_window_losses.append(loss.item())
                     if data_saver is not None:
-                        cur_data.append(data_saver(X_window, y_window, V_hat, loss, model))
+                        cur_data.append(data_saver(X_window, y_window, V_hat, V_target, loss, model, optimizer))
                     if c % print_every == 0:
                         print('Window {}, loss: {:0.3f}'.format(c, cur_window_losses[-1]))
                 

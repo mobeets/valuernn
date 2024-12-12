@@ -19,6 +19,12 @@ from train import make_dataloader, train_model, probe_model
 # device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 device = torch.device('cpu')
 
+import matplotlib as mpl
+plt.rcParams['font.family'] = 'Helvetica'
+mpl.rcParams['axes.spines.right'] = False
+mpl.rcParams['axes.spines.top'] = False
+
+
 #%% create experiment
 
 Exps = {}
@@ -200,7 +206,7 @@ pca, f, _ = fit_pca(responses)
 vis_data = apply_pca(responses, pca, f)
 plot_hidden_activity(exemplars[:], conditions, key='Z_pc')#, xind=2)
 
-#%% load model pre-existing file
+#%% get all existing model weight files
 
 import glob
 modeldir = '/Users/mobeets/Downloads/paper_weights/'
@@ -215,10 +221,89 @@ for modelfile in modelfiles:
     seed = int(pieces[1])
     weightfiles[model_type].append({'filepath': modelfile, 'hidden_size': hidden_size, 'seed': seed})
 
+#%% predict lick rates per trial
+
+trial_modes = ['conditioning', 'degradation', 'cue-c']
+model_types = ['conditioning_weights', 'cue-c_weights', 'degradation_weights']
+pre_iti = 5
+max_isi = 7
+post_reward = 7
+cue = 0
+
+lick_rates = {}
+for model_type, infiles in weightfiles.items():
+    if model_type not in model_types:
+        continue
+    if model_type == 'initial_weights':
+        model_type += '_conditioning'
+    
+    # create experiment
+    trial_mode = next(x for x in trial_modes if x in model_type)
+    np.random.seed(666)
+    E_test = Contingency(mode=trial_mode, ntrials=1000, iti_min=20, ntrials_per_episode=20, jitter=1, t_padding=0, rew_times=[8]*3)
+    dataloader_test = make_dataloader(E_test, batch_size=100)
+
+    if trial_mode not in lick_rates:
+        lick_rates[trial_mode] = []
+    c_lick_rates = []
+    for item in infiles:
+        # load model and eval on experiment
+        weights = torch.load(item['filepath'], map_location=torch.device('cpu'))
+        input_size = weights['rnn.weight_ih_l0'].shape[-1]
+        hidden_size = weights['value.weight'].shape[-1]
+        weights['bias'] = weights['bias'][None]
+        model = ValueRNN(input_size=input_size, hidden_size=hidden_size, gamma=0.83)
+        model.restore_weights(weights)
+        trials = probe_model(model, dataloader_test, inactivation_indices=None)
+        trials = [trial for trial in trials if trial.index_in_episode > 0]
+
+        # create lick rate for each trial
+        for i in range(len(trials)-1):
+            trial = trials[i]
+            if trial.isi < max_isi: # only take longest isi
+                continue
+            if trial.cue != cue:
+                continue
+            if trial.y.sum() > 0:
+                continue
+
+            crpes = trial.rpe[(trial.iti-pre_iti):(trial.iti+max_isi-1)]
+            cvalues = trial.value[(trial.iti-pre_iti):(trial.iti+max_isi-1),0]
+            next_values = trials[i+1].value[:post_reward,0]
+
+            lick_rate = np.hstack([cvalues, next_values])
+            iti_lick_rate_max = lick_rate[pre_iti-1]
+            isi_lick_onset = pre_iti#+ np.abs(np.random.randn()).astype(int)
+            
+            DA_at_CS = crpes[pre_iti-1]
+            lick_rate_mod = (1 + 10*DA_at_CS)
+            lick_rate[isi_lick_onset:] = lick_rate[isi_lick_onset:] * lick_rate_mod
+
+            c_lick_rates.append(lick_rate)
+    lick_rates[trial_mode].append(c_lick_rates)
+
+#%% visualize lick rate prediction
+
+clrs = {'conditioning': '#00a275', 'degradation': '#ff7834', 'cue-c': '#7771b8'}
+names = {'conditioning': 'Conditioning', 'degradation': 'Degradation', 'cue-c': 'Cued Reward'}
+
+plt.figure(figsize=(3.5,2.5))
+for trial_mode in clrs.keys():
+    c_lick_rates = lick_rates[trial_mode]
+    lrs = np.hstack(c_lick_rates)
+    mu = np.nanmean(lrs, axis=0)
+    se = np.nanstd(lrs, axis=0) / np.sqrt(lrs.shape[0])
+    xs = (np.arange(len(mu)) - pre_iti + 1) * 0.5 # convert to seconds
+    plt.plot(xs, mu, label=names[trial_mode], color=clrs[trial_mode])
+plt.legend(fontsize=8)
+plt.xlabel('Time from odor (s)')
+plt.ylabel('Predicted lick rate (a.u.)')
+
 #%% load all modelfiles (used in paper)
 
 results = {}
 aresults = {}
+aresults_value = {}
 trial_modes = ['conditioning', 'degradation', 'cue-c']
 pre_iti = 10
 max_isi = 7
@@ -230,6 +315,7 @@ for model_type, infiles in weightfiles.items():
         model_type += '_conditioning'
     results[model_type] = []
     aresults[model_type] = []
+    aresults_value[model_type] = []
     
     # create experiment
     trial_mode = next(x for x in trial_modes if x in model_type)
@@ -256,10 +342,12 @@ for model_type, infiles in weightfiles.items():
         # get avg RPE in response at the time of each cue onset
         rpes = {}
         arpes = {}
+        avalues = {}
         for trial in trials:
             if trial.cue not in rpes:
                 rpes[trial.cue] = []
                 arpes[trial.cue] = []
+                avalues[trial.cue] = []
             if trial.isi < max_isi: # only take longest isi
                 continue
 
@@ -267,12 +355,16 @@ for model_type, infiles in weightfiles.items():
 
             crpes = trial.rpe[(trial.iti-pre_iti):(trial.iti+max_isi-1)]
             arpes[trial.cue].append(crpes)
+            cvalues = trial.value[(trial.iti-pre_iti):(trial.iti+max_isi-1)]
+            avalues[trial.cue].append(cvalues)
         for cue in rpes:
             rpes[cue] = np.hstack(rpes[cue])
             arpes[cue] = np.hstack(arpes[cue])
+            avalues[cue] = np.hstack(avalues[cue])
         
         results[model_type].append(rpes)
         aresults[model_type].append(arpes)
+        aresults_value[model_type].append(avalues)
 
 #%% plot avg results across models
 
@@ -324,6 +416,80 @@ plt.ylim([-0.4, 0.2])
 plt.tight_layout()
 
 #%% plot predicted lick rates
+
+plt.figure(figsize=(5,3))
+
+showLicks = True
+# thresh = 0.01
+thresh = 0.01
+
+cresults = aresults
+# cresults = aresults_value
+
+cue = 0
+keys = ['conditioning_weights', 'degradation_weights', 'cue-c_weights']
+clrs = ['#00a275', '#ff7834', '#7771b8']
+
+for j, model_type in enumerate(keys):
+    all_rpes = cresults[model_type]
+    all_values = aresults_value[model_type]
+    alicks = []
+    for l, arpes in enumerate(all_rpes):
+        crpes = arpes[cue]
+        cvalues = all_values[l][cue]
+
+        if showLicks:
+            licks = []
+            for m in range(crpes.shape[1]):
+                rps = crpes[:,m] # rpe on current trial
+                vls = cvalues[:,m] # value on current trial
+                clicks = np.zeros(len(rps))
+                if any(rps > thresh):
+                    t = next(i for i in range(len(rps)) if rps[i] > thresh)
+                    xs = np.arange(len(clicks)-t)
+
+                    # add jitter to onset
+                    # t += np.abs(np.random.randn()).astype(int)
+                    clicks[t:] = 1 # np.exp(-0.01*xs)
+                    # clicks[t] = 1
+                licks.append(clicks)
+            licks = np.vstack(licks).T
+            # licks = (crpes > thresh)
+        else:
+            licks = crpes
+        licks = licks.mean(axis=1)
+        alicks.append(licks)
+    
+    alicks = np.vstack(alicks)
+    licks = alicks.mean(axis=0)
+    
+    plt.subplot(1,2,1)
+    xs = (np.arange(len(licks)) - pre_iti + 2) * 0.5 # convert to seconds
+    yjitter = (j-1)/100 # so we can see overlapping traces
+    plt.plot(xs, licks + yjitter, color=clrs[j], label=model_type.replace('_weights', ''), zorder=-j)
+    if showLicks:
+        plt.ylabel('lick rate')
+    else:
+        plt.ylabel('RPE')
+
+    plt.subplot(1,2,2)
+    if showLicks:
+        plt.bar(j, licks[(pre_iti-1):].sum(), color=clrs[j])
+        plt.ylabel('anticipatory lick rate')
+    else:
+        plt.bar(j, licks[(pre_iti-1)], color=clrs[j])
+        plt.ylabel('RPE at CS')
+
+plt.subplot(1,2,1)
+plt.xlabel('time rel. to odor onset')
+plt.xlim([-2, max(xs)])
+# plt.xlim([-2, 3.5])
+plt.legend(fontsize=8)
+plt.subplot(1,2,2)
+plt.xticks(ticks=range(3), labels=[k.replace('_weights', '') for k in keys], rotation=45, ha='right')
+plt.tight_layout()
+
+#%% plot predicted lick rates v0
 
 plt.figure(figsize=(5,3))
 

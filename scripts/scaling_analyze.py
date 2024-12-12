@@ -30,17 +30,16 @@ def get_all_matching_results(pattern, check_args=True):
     # find all results data where filename matches pattern
     infiles = glob.glob(pattern)
     results = [load_results(infile) for infile in infiles]
-    if not check_args:
-        return results
-
-    # ensure args are all the same across matching results
+    
     keys_to_check = ['ntraining_trials', 'fixed_ntrials_per_episode', 'fixed_episode_length', 'hidden_size', 'gamma', 'lr', 'optimizer']
     args = [tuple(res['args'][k] for k in keys_to_check if k in res['args']) for res in results]
-    if len(set(args)) > 1:
-        print(f'ERROR: args are not all the same across matching results: {args}')
-        return [], None
-    else:
-        args = dict((x,y) for x,y in results[0]['args'].items() if x in keys_to_check)
+    if check_args:
+        # ensure args are all the same across matching results
+        if len(set(args)) > 1:
+            print(f'ERROR: args are not all the same across matching results: {args}')
+            return [], None
+        else:
+            args = dict((x,y) for x,y in results[0]['args'].items() if x in keys_to_check)
 
     return group_results_by_key([res['results'] for res in results]), args
 
@@ -50,16 +49,30 @@ def get_all_matching_results(pattern, check_args=True):
 # results2, args2 = get_all_matching_results('data/temporal-scaling_404*.pickle')
 # ress = [results, results2]
 
-# results where all sessions have fixed duration:
-results, args = get_all_matching_results('data/temporal-scaling_52313*.pickle')
+nm = 'temporal-scaling_52313'
+nm = 'temporal-scaling_54826' # 30k
+nm = 'temporal-scaling_56010' # 50k
+# nm = 'temporal-scaling_56142' # gamma=0.99
+
+results, args = get_all_matching_results(f'data/{nm}*.pickle')
 ress = [results]
+
+# burke
+results, args = get_all_matching_results('data/temporal-scaling_burke_40467794*.pickle', check_args=False)
+ress = [results]
+
+# results where all sessions have fixed duration:
+# temporal-scaling_52587496_14_2024-10-22_11-31-43.pickle
+# results, args = get_all_matching_results('data/temporal-scaling_52587*10-22_11*.pickle', check_args=False)
+# ress = [results]
 
 # results where all sessions have fixed duration:
 # results, args = get_all_matching_results('data/temporal-scaling_525024*.pickle')
 # ress = [results]
 
-# burke i think maybe?
-# results2, args = get_all_matching_results('data/temporal-scaling_3856*.pickle')
+# i forget
+# results, args = get_all_matching_results('data/temporal-scaling_3856*.pickle')
+# ress = [results]
 
 print(args)
 results0 = {}
@@ -72,10 +85,10 @@ results = results0
 
 #%% recreate the key Gallistel & Gibbons plots
 
-thresh = 0.16 # to define time to learning
+thresh = 0.15 # to define time to learning
 # thresh = 0.0
 xnse = 0.1 # noise added for jitter
-clrs = {'I/T fixed': 'blue', 'I fixed': 'orange'}#, 'other': 'red'}
+clrs = {'I/T fixed': 'blue', 'I fixed': 'orange', 'other': 'red'}
 
 counts = {'I': {}, 'I/T': {}}
 for key, items in results.items():
@@ -111,10 +124,13 @@ for key, items in results.items():
         grp = 'I/T fixed'
     elif I == fixedI:
         grp = 'I fixed'
+        # grp = 'other'
     else:
         grp = 'other'
     if grp not in PtsT:
         PtsT[grp] = []
+
+    # thresh = 0.1 * (0.98 ** T)
 
     for j in range(ys.shape[0]):
         ts = np.where(ys[j,:] > thresh)[0]
@@ -132,13 +148,13 @@ print(f'{failedCounts=}')
 
 fontsize = 12
 ncols = 2; nrows = 2
-plt.figure(figsize=(2.5*ncols,3*nrows)); c = 1
+plt.figure(figsize=(3*ncols,3*nrows)); c = 1
 plt.subplot(nrows,ncols,c); c += 1
 xsas = []
 for grp, pts in PtsT.items():
     if grp not in clrs:
         continue
-    print(grp, len(pts))
+    print(grp, 'nsamples=', len(pts))
     pts = np.vstack(pts)
     xsa = np.unique(pts[:,0])
     mus = []
@@ -184,8 +200,8 @@ for grp in grps:
     xsas = []
     for x in xsa:
         ixc = ix & (xss == x)
-        if ixc.sum() < 2: # need at least two to connect lines
-            continue
+        # if ixc.sum() < 2: # need at least two to connect lines
+        #     continue
         ys = pts[ixc,-1]
         mu = np.median(ys); lb = np.percentile(ys, 25); ub = np.percentile(ys, 75)
         # mu = np.mean(ys); se = np.std(ys)/np.sqrt(len(ys)); lb = mu-se; ub = mu+se
@@ -208,8 +224,9 @@ plt.plot(xsc[ix], ysc[ix], 'o', color='k', markersize=3, zorder=0)
 
 # fit and show linear fit
 xsc = np.log(xsc); ysc = np.log(ysc)
-clf = LinearRegression(); mdl = clf.fit(xsc[:,None], ysc[:,None])
-plt.plot(np.exp(xsc), np.exp(mdl.predict(xsc[:,None])), 'k-', zorder=-2)
+if len(xsc) > 1:
+    clf = LinearRegression(); mdl = clf.fit(xsc[:,None], ysc[:,None])
+    plt.plot(np.exp(xsc), np.exp(mdl.predict(xsc[:,None])), 'k-', zorder=-2)
 
 plt.xlabel('I/T', fontsize=fontsize)
 plt.ylabel('Reinforcements to Acquisition', fontsize=fontsize)
@@ -261,13 +278,14 @@ plt.tight_layout()
 
 #%% visualize individual models
 
-showLoss = True
-showTrials = True # if False, shows episodes
+showLoss = False
+showTrials = False # if False, shows episodes
 separateSubplots = False # False for Burke
 
 ncols = 2; nrows = 1 # for Burke
-# ncols = 5; nrows = 2
-thresh = 0.3
+ncols = 3; nrows = 1 # for Burke
+# ncols = 6; nrows = 2
+thresh = 0.17
 
 clrs = ['#d4bb51', '#916bad']*len(results)
 
@@ -279,12 +297,15 @@ for j, key in enumerate(keys):
     IoT = I/T
     # print(I, T, IoT)
     
-    if T != 32 or I != 24:
-        continue
+    # if T < 60:
+    #     continue
     # if I != fixedI:
     #     continue
     # if IoT != fixedIoT:
     #     continue
+
+    # thresh = 0.5 * (0.98 ** T)
+    # thresh = 0.17
 
     if showLoss:
         ys = np.vstack([item['scores'] for item in items])
@@ -300,6 +321,7 @@ for j, key in enumerate(keys):
         vs = [v[0] for v in vs if len(v)]
         plt.subplot(nrows,ncols,nrows*ncols)
         plt.plot([T]*len(vs), vs, '.', label=f'{I=}, {T=}', color=clrs[j] if j < len(clrs) else None)
+        plt.xlabel('T = Delay of Reinforcement')
         plt.ylabel('{} to Acquistion'.format('Reinforcements' if showTrials else 'Episodes'))
         plt.legend(fontsize=8)
     # print(key, ys.shape)
@@ -320,11 +342,14 @@ for j, key in enumerate(keys):
     # [plt.plot(v, thresh, '.') for v in vs]
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
-    if not showLoss:
-        plt.plot(plt.xlim(), thresh*np.ones(2), 'k--', zorder=-1, alpha=0.5)
     if c == 1:
-        plt.xlabel('# Reinforcements' if showTrials else '# episodes', fontsize=12)
+        plt.xlabel('# Reinforcements' if showTrials else '# Episodes', fontsize=12)
         plt.ylabel('Loss' if showLoss else 'RPE', fontsize=12)
+    if showLoss:
+        plt.xlabel('# Episodes', fontsize=12)
+    else:
+        plt.plot(plt.xlim(), thresh*np.ones(2), 'k--', zorder=-1, alpha=0.5)
+        plt.ylim([-0.1, 1.0])
     # plt.xlim([0, 1300]); plt.ylim([-0.2, 1.0])
 
 plt.tight_layout()

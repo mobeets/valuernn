@@ -54,6 +54,8 @@ def get_experiments_by_id(id, default_exp):
         return ((24,4), (24,6), (24,8), (24,16), (24,18), (24,24), (24,32), (24,46), (24,60))
     elif id == 15: # fixed I/T = 10, all T
         return ((30,3), (40,4), (60,6), (80,8), (120,12), (160,16), (180,18), (240,24), (320,32), (480,48), (640,64))
+    elif id == 16:
+        return ((180, 18), (360, 36), (18, 18), (18, 36))
     else:
         raise Exception('experiments id not recognized')
     pass
