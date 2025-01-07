@@ -31,13 +31,60 @@ E = ValueInference(nblocks_per_episode=120,
 
 #%%
 
-E = ValueInference(ncues=1, nblocks=1, nblocks_per_episode=1,
-    ntrials_per_block=500, cue_probs=None,
+E = ValueInference(ncues=1, nblocks=2, nblocks_per_episode=1,
+    ntrials_per_block=50, cue_probs=None,
     is_trial_level=False, ntrials_per_block_jitter=0,
-    reward_probs_per_block={0: (1,)},
-    reward_times_per_block=(5,), iti_p=0.5, iti_min=20,
+    reward_probs_per_block={0: (1,0), 1: (0,1)},
+    reward_times_per_block=(5,5), iti_p=0.5, iti_min=20,
     nepisodes=1,
     reward_offset_if_trial_level=False)
+
+#%% prepare to get Trial objects during training
+
+def data_saver(X, y, V_hat, V_target, hs, loss, model, optimizer):
+    return {
+        'X': X,
+        'Z': hs.detach().numpy(),
+        'V_hat': V_hat.detach().squeeze(),
+        'rpe': V_target.detach().squeeze() - V_hat.detach().squeeze(),
+        'loss': loss.item(),
+        # 'weights': deepcopy(model.state_dict()),
+        # 'optimizer': deepcopy(optimizer.state_dict()['state']),
+        }
+
+def data_saver_to_trials(training_data, epoch_index=0):
+    batch_size == training_data[epoch_index][0]['X'].shape[1]
+    if batch_size > 1:
+        raise Exception("You must use batch_size==1.")
+    X = np.vstack([entry['X'][:,0,:] for entry in training_data[epoch_index]])
+    V = np.hstack([entry['V_hat'] for entry in training_data[epoch_index]])
+    Z = np.vstack([entry['Z'][:,0,:] for entry in training_data[epoch_index]])
+    rpe = np.hstack([entry['rpe'] for entry in training_data[epoch_index]])
+
+    trials = []
+    t_start = 0
+    for i, trial in enumerate(E.trials):
+        trial = deepcopy(trial)
+        t_end = t_start + len(trial)
+        Xc = X[t_start:t_end]
+        Zc = Z[t_start:t_end]
+        Vc = V[t_start:t_end]
+        rpec = rpe[t_start:t_end]
+        t_pad = len(trial) - len(Xc)
+        assert (trial.X[:len(Xc)] == Xc[:len(Xc)]).all()
+        if t_pad > 0:
+            # some trials will not be processed in full because of stride size
+            Xc = np.vstack([Xc, np.nan * np.ones((t_pad, Xc.shape[1]))])
+            Zc = np.vstack([Zc, np.nan * np.ones((t_pad, Zc.shape[1]))])
+            Vc = np.hstack([Vc, np.nan * np.ones((t_pad,))])
+            rpec = np.hstack([rpec, np.nan * np.ones((t_pad,))])
+        trial.Z = Zc
+        trial.value = Vc
+        trial.rpe = rpec
+        # trial.readout = W # todo
+        trials.append(trial)
+        t_start += len(trial)
+    return trials
 
 #%% train model
 
@@ -52,36 +99,27 @@ gamma = 0.8
 model = ValueRNN(input_size=E.ncues + E.nrewards*int(E.include_reward),
                  output_size=E.nrewards, hidden_size=hidden_size,
                  gamma=gamma if not E.is_trial_level else 0)
-# model.reset(seed=555)
+model.reset(seed=555)
 
 dataloader = make_dataloader(E, batch_size=batch_size)
 
-def data_saver(X, y, V_hat, V_target, loss, model, optimizer):
-    return {
-        'X': X[:stride_size],
-        'V_hat': V_hat[:stride_size].detach().squeeze(),
-        'rpe': V_target[:stride_size].detach().squeeze() - V_hat[:stride_size].detach().squeeze(),
-        'loss': loss.item(),
-        # 'weights': deepcopy(model.state_dict()),
-        # 'optimizer': deepcopy(optimizer.state_dict()['state']),
-        }
-
 optimizer = torch.optim.Adam(model.parameters(), lr=0.003, amsgrad=True)
-scores, info, weights = train_model_TBPTT(model, dataloader,
+scores, training_data, weights = train_model_TBPTT(model, dataloader,
                 optimizer=optimizer, epochs=epochs,
                 reward_is_offset=not E.is_trial_level,
                 data_saver=data_saver,
                 window_size=window_size, stride_size=stride_size,
                 print_every=50)
 
-loss = np.hstack([y['loss'] for x in info for y in x])
+loss = np.hstack([y['loss'] for x in training_data for y in x])
 plt.plot(loss), plt.xlabel('# windows'), plt.ylabel('loss')
+training_trials = data_saver_to_trials(training_data)
 
 #%% visualize rpe during learning
 
-vhats = np.hstack([x['V_hat'].detach().numpy() for x in info[0]])
-rpes = np.hstack([x['rpe'].detach().numpy() for x in info[0]])
-X = np.hstack([x['X'].detach().numpy() for x in info[0]])
+vhats = np.hstack([x['V_hat'].detach().numpy() for x in training_data[0]])
+rpes = np.hstack([x['rpe'].detach().numpy() for x in training_data[0]])
+X = np.hstack([x['X'].detach().numpy() for x in training_data[0]])
 # X = np.reshape(X, (-1, X.shape[-1]))
 X = np.reshape(np.transpose(X, (1,0,2)), (-1, X.shape[-1]))
 # plt.subplot(2,1,1)
@@ -118,8 +156,8 @@ plt.ylabel('RPE to US')
 
 episode_index = 0
 # n.b. next time "info['data']"" will just be "info"
-V = np.hstack([entry['V_hat'] for entry in info[episode_index]])
-X = np.vstack([entry['X'] for entry in info[episode_index]])
+V = np.hstack([entry['V_hat'] for entry in training_data[episode_index]])
+X = np.vstack([entry['X'] for entry in training_data[episode_index]])
 n = len(V)
 
 # find times of odor onsets and get value there

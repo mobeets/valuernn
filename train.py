@@ -82,11 +82,13 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
                 optimizer.zero_grad() # zero grad between episodes
                 cur_window_losses = []
                 cur_data = []
-                for c, i in enumerate(range(0, max(1, len(X)-window_size-1), stride_size)):
+                window_starts = range(0, max(1, len(X)-window_size-1), stride_size)
+                for c, i in enumerate(window_starts):
                     # get the current sliding window of (X,y)
                     # n.b. we include one time step extra since we trim one off later
                     X_window = X[i:(i+window_size+1)]
                     y_window = y[i:(i+window_size+1)]
+                    is_last_window_in_block = (c+1 == len(window_starts))
                 
                     # forward pass
                     V, hs = model(X_window, h0=h, return_hiddens=True)
@@ -114,7 +116,9 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
                     optimizer.step()
                     cur_window_losses.append(loss.item())
                     if data_saver is not None:
-                        cur_data.append(data_saver(X_window, y_window, V_hat, V_target, loss, model, optimizer))
+                        # if we have more windows coming, we will only keep the first stride_size entries, because the model will see those time steps again after a learning update
+                        t_end = len(X) if is_last_window_in_block else stride_size
+                        cur_data.append(data_saver(X_window[:t_end], y_window[:t_end], V_hat[:t_end], V_target[:t_end], hs[:t_end], loss, model, optimizer))
                     if c % print_every == 0:
                         print('Window {}, loss: {:0.3f}'.format(c, cur_window_losses[-1]))
                 
