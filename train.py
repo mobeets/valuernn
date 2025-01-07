@@ -9,6 +9,7 @@ import numpy as np
 from copy import deepcopy
 import torch
 import torch.nn as nn
+import traceback
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
@@ -121,13 +122,16 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
                 losses.append(np.mean(cur_window_losses))
                 weights.append(deepcopy(model.state_dict()))
                 finished_episode = True
-                    
+ 
     except KeyboardInterrupt:
         # log this here, so that if we break before an epoch we don't lose everything
         if not finished_episode:
             data.append(cur_data)
             losses.append(np.mean(cur_window_losses))
             weights.append(deepcopy(model.state_dict()))
+    except Exception:
+        # for any non-keyboard interrupt, we want to see the stack trace
+        traceback.print_exc()
     finally:
         return losses, data, weights
 
@@ -244,9 +248,9 @@ def train_model(model, dataloader=None,
             if t % save_every == 0 and save_hook is not None:
                 save_hook(model, scores)
             scores[t+1], batch_loss = train_epoch(model, dataloader, loss_fn, optimizer,
-                                      inactivation_indices=inactivation_indices,
-                                      reward_is_offset=reward_is_offset,
-                                      auto_readout_lr=auto_readout_lr, alphas=alphas)
+                                    inactivation_indices=inactivation_indices,
+                                    reward_is_offset=reward_is_offset,
+                                    auto_readout_lr=auto_readout_lr, alphas=alphas)
             weights.append(deepcopy(model.state_dict()))
             batch_losses.append(batch_loss)
             
@@ -262,6 +266,9 @@ def train_model(model, dataloader=None,
                 nsteps_increase = 0
     except KeyboardInterrupt:
         pass
+    except Exception:
+        # for any non-keyboard interrupt, we want to see the stack trace
+        traceback.print_exc()
     finally:
         test_scores = np.array(test_scores)
         scores = scores[~np.isnan(scores)]
