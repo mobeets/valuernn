@@ -1,7 +1,8 @@
 #%% imports
 
 import numpy as np
-from train import make_dataloader, train_model, probe_model, train_model_TBPTT
+from train import make_dataloader, train_model, probe_model
+from train_bptt import data_saver, data_saver_to_trials, train_model_TBPTT
 from tasks.inference import ValueInference
 from model import ValueRNN
 import matplotlib.pyplot as plt
@@ -39,53 +40,6 @@ E = ValueInference(ncues=1, nblocks=2, nblocks_per_episode=1,
     nepisodes=1,
     reward_offset_if_trial_level=False)
 
-#%% prepare to get Trial objects during training
-
-def data_saver(X, y, V_hat, V_target, hs, loss, model, optimizer):
-    return {
-        'X': X,
-        'Z': hs.detach().numpy(),
-        'V_hat': V_hat.detach().squeeze(),
-        'rpe': V_target.detach().squeeze() - V_hat.detach().squeeze(),
-        'loss': loss.item(),
-        # 'weights': deepcopy(model.state_dict()),
-        # 'optimizer': deepcopy(optimizer.state_dict()['state']),
-        }
-
-def data_saver_to_trials(training_data, epoch_index=0):
-    batch_size == training_data[epoch_index][0]['X'].shape[1]
-    if batch_size > 1:
-        raise Exception("You must use batch_size==1.")
-    X = np.vstack([entry['X'][:,0,:] for entry in training_data[epoch_index]])
-    V = np.hstack([entry['V_hat'] for entry in training_data[epoch_index]])
-    Z = np.vstack([entry['Z'][:,0,:] for entry in training_data[epoch_index]])
-    rpe = np.hstack([entry['rpe'] for entry in training_data[epoch_index]])
-
-    trials = []
-    t_start = 0
-    for i, trial in enumerate(E.trials):
-        trial = deepcopy(trial)
-        t_end = t_start + len(trial)
-        Xc = X[t_start:t_end]
-        Zc = Z[t_start:t_end]
-        Vc = V[t_start:t_end]
-        rpec = rpe[t_start:t_end]
-        t_pad = len(trial) - len(Xc)
-        assert (trial.X[:len(Xc)] == Xc[:len(Xc)]).all()
-        if t_pad > 0:
-            # some trials will not be processed in full because of stride size
-            Xc = np.vstack([Xc, np.nan * np.ones((t_pad, Xc.shape[1]))])
-            Zc = np.vstack([Zc, np.nan * np.ones((t_pad, Zc.shape[1]))])
-            Vc = np.hstack([Vc, np.nan * np.ones((t_pad,))])
-            rpec = np.hstack([rpec, np.nan * np.ones((t_pad,))])
-        trial.Z = Zc
-        trial.value = Vc
-        trial.rpe = rpec
-        # trial.readout = W # todo
-        trials.append(trial)
-        t_start += len(trial)
-    return trials
-
 #%% train model
 
 hidden_size = 5 # number of hidden neurons
@@ -113,7 +67,7 @@ scores, training_data, weights = train_model_TBPTT(model, dataloader,
 
 loss = np.hstack([y['loss'] for x in training_data for y in x])
 plt.plot(loss), plt.xlabel('# windows'), plt.ylabel('loss')
-training_trials = data_saver_to_trials(training_data)
+training_trials = data_saver_to_trials(E.trials, training_data)
 
 #%% visualize rpe during learning
 
