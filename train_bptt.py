@@ -65,8 +65,6 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
         raise Exception("batch_size must be 1 when training model with TBPTT")
     if inactivation_indices is not None:
         raise NotImplementedError("inactivation_indices not implemented for TBPTT")
-    if auto_readout_lr > 0:
-        raise NotImplementedError('auto_readout_lr not implemented for TBPTT')
     if stride_size < 1:
         raise Exception(f'Provided {stride_size=} is invalid; value must be positive')
     if window_size < 1:
@@ -106,7 +104,9 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
                     is_last_window_in_block = (c+1 == len(window_starts))
                 
                     # forward pass
-                    V, hs = model(X_window, h0=h, return_hiddens=True)
+                    V, hs = model(X_window, y=y_window if auto_readout_lr > 0 else None, h0=h, return_hiddens=True, auto_readout_lr=auto_readout_lr)
+                    if auto_readout_lr > 0:
+                        hs, ws = hs
                     V_hat = V[:-1]
                     if model.predict_next_input:
                         V_target = (y_window[1:] if reward_is_offset else y_window[:-1])
