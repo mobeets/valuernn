@@ -77,13 +77,26 @@ class ValueRNN(nn.Module):
         if inactivation_indices:
             return self.forward_with_lesion(X, inactivation_indices)
         
+        if type(X) is torch.nn.utils.rnn.PackedSequence:
+            batch_size = len(X[2])
+        else:
+            assert len(X.shape) == 3
+            batch_size = X.shape[1]
+
+        if auto_readout_lr > 0:
+            # h0 should be a tuple of (z0, w0)
+            assert y is not None
+            if h0 is None:
+                h0, w0 = None, None
+            else:
+                h0, w0 = h0
+            if h0 is not None and w0 is None:
+                raise Exception("Must pass w0 if passing z0 and auto_readout_lr > 0")
+            if w0 is None:
+                w0 = torch.zeros((batch_size, self.hidden_size))
+        
         # get initial state of RNN
         if h0 is None and self.learn_initial_state:
-            if type(X) is torch.nn.utils.rnn.PackedSequence:
-                batch_size = len(X[2])
-            else:
-                assert len(X.shape) == 3
-                batch_size = X.shape[1]
             h0 = torch.tile(self.initial_state, (batch_size,1))[None,:]
         
         # pass inputs through RNN
@@ -97,21 +110,22 @@ class ValueRNN(nn.Module):
             # because only in RNN/GRU are the hiddens the same as the outputs
             assert self.recurrent_cell.lower() in ['gru', 'rnn']
 
-        if y is None:
+        if auto_readout_lr > 0:
+            V, W = self.forward_with_td(Z, y, w0=w0, auto_readout_lr=auto_readout_lr)
+            hiddens = (Z, W)
+        else:
             V = self.bias + self.value(Z)
             hiddens = Z
-        else:
-            V, W = self.forward_with_td(Z, y, auto_readout_lr=auto_readout_lr)
-            hiddens = (Z, W)
 
         return V, (hiddens if return_hiddens else last_hidden)
     
-    def forward_with_td(self, Z, y, auto_readout_lr=0.0):
+    def forward_with_td(self, Z, y, w0=None, auto_readout_lr=0.0):
         """
         get value estimates, where the value readout is updated step-by-step using TD
         inputs:
         - Z: inputs with shape (seq_length, batch_size, hidden_size)
         - y: reward with shape (seq_length, batch_size, 1)
+        - w0: initial readout weights with shape (batch_size, hidden_size)
         - auto_readout_lr (float): learning rate for value weights
         outputs:
         - V: value estimate with shape (seq_length, batch_size, output_size)
@@ -122,15 +136,16 @@ class ValueRNN(nn.Module):
         assert self.recurrent_cell.lower() in ['gru', 'rnn']
         vs = []
         ws = []
-        w_t = torch.tile(self.value.weight, (Z.shape[1], 1)) # (batch_size, hidden_size)
+        
+        w_t = w0
         for t, z_t in enumerate(Z): # z_t is (batch_size, hidden_size)
             # get current value estimate
             w_t_prev = w_t # (batch_size, hidden_size)
             v_t = self.bias + (z_t * w_t_prev).sum(axis=-1) # (batch_size,)
             
             # update w_t using TD learning
-            z_t_next = Z[t+1].detach() if t+1 < len(Z) else 0*z_t # (batch_size, hidden_size)
-            v_t_next = self.bias.detach() + (z_t_next * w_t_prev.detach()).sum(axis=-1) # (batch_size,)
+            z_t_next = Z[t+1] if t+1 < len(Z) else 0*z_t # (batch_size, hidden_size)
+            v_t_next = self.bias.detach() + (z_t_next.detach() * w_t_prev.detach()).sum(axis=-1) # (batch_size,)
             d_t = y[t,:,0] + self.gamma*v_t_next - v_t.detach() # (batch_size,); n.b. x_t[:,-1] is r(t)
             w_t = w_t_prev + auto_readout_lr * d_t[:,None] * z_t.detach() # (batch_size, hidden_size)
 
@@ -324,112 +339,112 @@ class ValueSynapseRNN(ValueRNN):
 
 #%%
 
-from torch.nn import RNNBase
-from torch.nn.utils.rnn import PackedSequence
-from torch import Tensor
-from typing import Tuple, Optional, overload
-from torch import _VF
+# from torch.nn import RNNBase
+# from torch.nn.utils.rnn import PackedSequence
+# from torch import Tensor
+# from typing import Tuple, Optional, overload
+# from torch import _VF
 
-class GRUWithNoise(RNNBase):
-    def __init__(self, *args, **kwargs):
-        if 'sigma_noise' in kwargs:
-            self.sigma_noise = kwargs.pop('sigma_noise')
-        else:
-            self.sigma_noise = 0.0
-        super(GRUWithNoise, self).__init__('GRU', *args, **kwargs)
+# class GRUWithNoise(RNNBase):
+#     def __init__(self, *args, **kwargs):
+#         if 'sigma_noise' in kwargs:
+#             self.sigma_noise = kwargs.pop('sigma_noise')
+#         else:
+#             self.sigma_noise = 0.0
+#         super(GRUWithNoise, self).__init__('GRU', *args, **kwargs)
 
-    @overload  # type: ignore[override]
-    @torch._jit_internal._overload_method  # noqa: F811
-    def forward(self, input: Tensor, hx: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:  # noqa: F811
-        pass
+#     @overload  # type: ignore[override]
+#     @torch._jit_internal._overload_method  # noqa: F811
+#     def forward(self, input: Tensor, hx: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:  # noqa: F811
+#         pass
 
-    @overload
-    @torch._jit_internal._overload_method  # noqa: F811
-    def forward(self, input: PackedSequence, hx: Optional[Tensor] = None) -> Tuple[PackedSequence, Tensor]:  # noqa: F811
-        pass
+#     @overload
+#     @torch._jit_internal._overload_method  # noqa: F811
+#     def forward(self, input: PackedSequence, hx: Optional[Tensor] = None) -> Tuple[PackedSequence, Tensor]:  # noqa: F811
+#         pass
 
-    def forward(self, input, hx=None):  # noqa: F811
-        orig_input = input
-        # xxx: isinstance check needs to be in conditional for TorchScript to compile
-        if isinstance(orig_input, PackedSequence):
-            input, batch_sizes, sorted_indices, unsorted_indices = input
-            max_batch_size = batch_sizes[0]
-            max_batch_size = int(max_batch_size)
-        else:
-            batch_sizes = None
-            is_batched = input.dim() == 3
-            batch_dim = 0 if self.batch_first else 1
-            if not is_batched:
-                input = input.unsqueeze(batch_dim)
-                if hx is not None:
-                    if hx.dim() != 2:
-                        raise RuntimeError(
-                            f"For unbatched 2-D input, hx should also be 2-D but got {hx.dim()}-D tensor")
-                    hx = hx.unsqueeze(1)
-            else:
-                if hx is not None and hx.dim() != 3:
-                    raise RuntimeError(
-                        f"For batched 3-D input, hx should also be 3-D but got {hx.dim()}-D tensor")
-            max_batch_size = input.size(0) if self.batch_first else input.size(1)
-            sorted_indices = None
-            unsorted_indices = None
+#     def forward(self, input, hx=None):  # noqa: F811
+#         orig_input = input
+#         # xxx: isinstance check needs to be in conditional for TorchScript to compile
+#         if isinstance(orig_input, PackedSequence):
+#             input, batch_sizes, sorted_indices, unsorted_indices = input
+#             max_batch_size = batch_sizes[0]
+#             max_batch_size = int(max_batch_size)
+#         else:
+#             batch_sizes = None
+#             is_batched = input.dim() == 3
+#             batch_dim = 0 if self.batch_first else 1
+#             if not is_batched:
+#                 input = input.unsqueeze(batch_dim)
+#                 if hx is not None:
+#                     if hx.dim() != 2:
+#                         raise RuntimeError(
+#                             f"For unbatched 2-D input, hx should also be 2-D but got {hx.dim()}-D tensor")
+#                     hx = hx.unsqueeze(1)
+#             else:
+#                 if hx is not None and hx.dim() != 3:
+#                     raise RuntimeError(
+#                         f"For batched 3-D input, hx should also be 3-D but got {hx.dim()}-D tensor")
+#             max_batch_size = input.size(0) if self.batch_first else input.size(1)
+#             sorted_indices = None
+#             unsorted_indices = None
 
-        if hx is None:
-            num_directions = 2 if self.bidirectional else 1
-            hx = torch.zeros(self.num_layers * num_directions,
-                             max_batch_size, self.hidden_size,
-                             dtype=input.dtype, device=input.device)
-        else:
-            # Each batch of the hidden state should match the input sequence that
-            # the user believes he/she is passing in.
-            hx = self.permute_hidden(hx, sorted_indices)
+#         if hx is None:
+#             num_directions = 2 if self.bidirectional else 1
+#             hx = torch.zeros(self.num_layers * num_directions,
+#                              max_batch_size, self.hidden_size,
+#                              dtype=input.dtype, device=input.device)
+#         else:
+#             # Each batch of the hidden state should match the input sequence that
+#             # the user believes he/she is passing in.
+#             hx = self.permute_hidden(hx, sorted_indices)
 
-        self.check_forward_args(input, hx, batch_sizes)
+#         self.check_forward_args(input, hx, batch_sizes)
         
-        assert self.num_layers == 1, "Only one layer implemented"
-        hx = hx[0,:,:]
+#         assert self.num_layers == 1, "Only one layer implemented"
+#         hx = hx[0,:,:]
         
-        if batch_sizes is None:
-            assert is_batched, "Only implemented for batched inputs"
-            assert not self.batch_first, "Not implemented for batch_first"
-            output = torch.zeros(
-                input.size(0), input.size(1), self.hidden_size,
-                dtype=input.dtype, device=input.device)
-            for seq_index in range(input.size(0)):
-                new_hx = _VF.gru_cell(
-                    input[seq_index,:,:],
-                    hx, self.weight_ih_l0, self.weight_hh_l0,
-                    self.bias_ih_l0, self.bias_hh_l0)
-                if self.sigma_noise > 0:
-                    # add noise to hidden units
-                    new_hx += self.sigma_noise * torch.randn_like(new_hx)
-                output[seq_index,:,:] = new_hx
-                hx = new_hx
-        else:
-            output = torch.zeros(
-                input.size(0), self.hidden_size,
-                dtype=input.dtype, device=input.device)
-            begin = 0
-            for batch in batch_sizes:
-                new_hx = _VF.gru_cell(
-                    input[begin: begin + batch],
-                    hx[0:batch], self.weight_ih_l0, self.weight_hh_l0,
-                    self.bias_ih_l0, self.bias_hh_l0)
-                if self.sigma_noise > 0:
-                    # add noise to hidden units
-                    new_hx += self.sigma_noise * torch.randn_like(new_hx)
-                output[begin: begin + batch] = new_hx
-                hx = new_hx
-                begin += batch
+#         if batch_sizes is None:
+#             assert is_batched, "Only implemented for batched inputs"
+#             assert not self.batch_first, "Not implemented for batch_first"
+#             output = torch.zeros(
+#                 input.size(0), input.size(1), self.hidden_size,
+#                 dtype=input.dtype, device=input.device)
+#             for seq_index in range(input.size(0)):
+#                 new_hx = _VF.gru_cell(
+#                     input[seq_index,:,:],
+#                     hx, self.weight_ih_l0, self.weight_hh_l0,
+#                     self.bias_ih_l0, self.bias_hh_l0)
+#                 if self.sigma_noise > 0:
+#                     # add noise to hidden units
+#                     new_hx += self.sigma_noise * torch.randn_like(new_hx)
+#                 output[seq_index,:,:] = new_hx
+#                 hx = new_hx
+#         else:
+#             output = torch.zeros(
+#                 input.size(0), self.hidden_size,
+#                 dtype=input.dtype, device=input.device)
+#             begin = 0
+#             for batch in batch_sizes:
+#                 new_hx = _VF.gru_cell(
+#                     input[begin: begin + batch],
+#                     hx[0:batch], self.weight_ih_l0, self.weight_hh_l0,
+#                     self.bias_ih_l0, self.bias_hh_l0)
+#                 if self.sigma_noise > 0:
+#                     # add noise to hidden units
+#                     new_hx += self.sigma_noise * torch.randn_like(new_hx)
+#                 output[begin: begin + batch] = new_hx
+#                 hx = new_hx
+#                 begin += batch
 
-        hidden = [] # I don't think we use this so who cares
+#         hidden = [] # I don't think we use this so who cares
 
-        # xxx: isinstance check needs to be in conditional for TorchScript to compile
-        if isinstance(orig_input, PackedSequence):
-            output_packed = PackedSequence(output, batch_sizes, sorted_indices, unsorted_indices)
-            return output_packed, [] #self.permute_hidden(hidden, unsorted_indices)
-        else:
-            if not is_batched:
-                output = output.squeeze(batch_dim)
-                # hidden = hidden.squeeze(1)
-            return output, []#self.permute_hidden(hidden, unsorted_indices)
+#         # xxx: isinstance check needs to be in conditional for TorchScript to compile
+#         if isinstance(orig_input, PackedSequence):
+#             output_packed = PackedSequence(output, batch_sizes, sorted_indices, unsorted_indices)
+#             return output_packed, [] #self.permute_hidden(hidden, unsorted_indices)
+#         else:
+#             if not is_batched:
+#                 output = output.squeeze(batch_dim)
+#                 # hidden = hidden.squeeze(1)
+#             return output, []#self.permute_hidden(hidden, unsorted_indices)
