@@ -8,6 +8,11 @@ from model import ValueRNN
 import matplotlib.pyplot as plt
 import torch
 
+import matplotlib as mpl
+plt.rcParams['font.family'] = 'Helvetica'
+mpl.rcParams['axes.spines.right'] = False
+mpl.rcParams['axes.spines.top'] = False
+
 #%% make trials
 
 E = ValueInference(ncues=2, nblocks=2, nblocks_per_episode=2,
@@ -50,4 +55,7 @@ training_trials = data_saver_to_trials(E.trials, training_data)
 #%% plot value estimates of each cue over time
 
 for t, trial in enumerate(training_trials):
-    plt.plot(t, trial.value[trial.iti], marker='o' if trial.y.sum() > 0 else 'x', color='b' if trial.cue == 0 else 'r')
+    plt.plot(t, trial.value[trial.iti], marker='o' if trial.y.sum() > 0 else 'x', color='b' if trial.cue == 0 else 'r', markersize=5)
+plt.xlabel('trial index')
+plt.ylabel('value estimate at CS onset')
+plt.ylim([-1,2])
