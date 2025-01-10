@@ -27,6 +27,7 @@ class ValueInference(Dataset):
                 jitter=0,
                 iti_min=5, iti_p=1/4, iti_max=0, iti_dist='geometric',
                 is_trial_level=False, reward_offset_if_trial_level=True,
+                first_block_is_random=True,
                 t_padding=0, include_reward=True,
                 include_null_input=False):
         self.nepisodes = nepisodes
@@ -55,8 +56,13 @@ class ValueInference(Dataset):
 
         self.include_reward = include_reward
         self.include_null_input = include_null_input
+        self.first_block_is_random = first_block_is_random
         self.ncues = ncues
         self.cue_probs = cue_probs if cue_probs is not None else np.ones(self.ncues)/self.ncues
+        if type(self.cue_probs) is not dict:
+            self.cue_probs_per_block = dict((i, self.cue_probs) for i in range(self.nblocks))
+        else:
+            self.cue_probs_per_block = self.cue_probs
         self.nrewards = 1 # reward dimensionality (e.g., all rewards are water)
         self.rng = None
         self.make_trials()
@@ -77,7 +83,10 @@ class ValueInference(Dataset):
 
         self.episodes = []
         self.trials = []
-        first_blocks = self.rng.choice(self.nblocks, size=self.nepisodes)
+        if self.first_block_is_random:
+            first_blocks = self.rng.choice(self.nblocks, size=self.nepisodes)
+        else:
+            first_blocks = [0]*self.nepisodes
         for i in range(self.nepisodes):
             trials = []
             first_block = first_blocks[i]
@@ -85,7 +94,7 @@ class ValueInference(Dataset):
             r_prev = 0
 
             for j in range(self.nblocks_per_episode):
-                # block order alternates, starting from random first block
+                # block order cycles through all blocks in order, starting from first block
                 cur_block_index = (first_block + j) % self.nblocks
 
                 # each block has variable number of trials
@@ -94,7 +103,7 @@ class ValueInference(Dataset):
                 
                 # get cues and ITIs for all trials in this block
                 ITIs = get_itis(self, ntrials)
-                cues = self.rng.choice(self.ncues, size=ntrials, p=self.cue_probs)
+                cues = self.rng.choice(self.ncues, size=ntrials, p=self.cue_probs_per_block[cur_block_index])
 
                 # create each trial in block
                 for ti, (cue, iti) in enumerate(zip(cues, ITIs)):

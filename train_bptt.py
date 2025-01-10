@@ -25,6 +25,9 @@ def data_saver_to_trials(training_trials, training_data, epoch_index=0):
     V = np.hstack([entry['V_hat'] for entry in training_data[epoch_index]])
     Z = np.vstack([entry['Z'][:,0,:] for entry in training_data[epoch_index]])
     rpe = np.hstack([entry['rpe'] for entry in training_data[epoch_index]])
+    print(X.shape, V.shape, Z.shape, rpe.shape)
+    assert len(X) == len(Z)
+    assert len(X) == (len(V)+1)
 
     trials = []
     t_start = 0
@@ -69,6 +72,8 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
         raise Exception(f'Provided {stride_size=} is invalid; value must be positive')
     if window_size < 1:
         raise Exception(f'Provided {window_size=} is invalid; value must be positive')
+    if stride_size >= window_size:
+        raise Exception(f'Provided {stride_size=} is invalid; value must be strictly smaller than {window_size=}')
     
     if model.predict_next_input:
         loss_fn = nn.CrossEntropyLoss()

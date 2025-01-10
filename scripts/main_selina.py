@@ -209,7 +209,7 @@ plot_hidden_activity(exemplars[:], conditions, key='Z_pc')#, xind=2)
 #%% get all existing model weight files
 
 import glob
-modeldir = '/Users/mobeets/Downloads/paper_weights/'
+modeldir = '/Users/mobeets/code/vta-data/qianburrell_paper_weights/'
 modelfiles = glob.glob(os.path.join(modeldir, '50_*.pt'))
 weightfiles = {}
 for modelfile in modelfiles:
