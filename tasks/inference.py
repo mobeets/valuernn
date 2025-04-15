@@ -28,6 +28,8 @@ class ValueInference(Dataset):
                 iti_min=5, iti_p=1/4, iti_max=0, iti_dist='geometric',
                 is_trial_level=False, reward_offset_if_trial_level=True,
                 first_block_is_random=True,
+                first_block_identity=None,
+                seed=None,
                 t_padding=0, include_reward=True,
                 include_null_input=False):
         self.nepisodes = nepisodes
@@ -57,6 +59,7 @@ class ValueInference(Dataset):
         self.include_reward = include_reward
         self.include_null_input = include_null_input
         self.first_block_is_random = first_block_is_random
+        self.first_block_identity = first_block_identity
         self.ncues = ncues
         self.cue_probs = cue_probs if cue_probs is not None else np.ones(self.ncues)/self.ncues
         if type(self.cue_probs) is not dict:
@@ -65,7 +68,7 @@ class ValueInference(Dataset):
             self.cue_probs_per_block = self.cue_probs
         self.nrewards = 1 # reward dimensionality (e.g., all rewards are water)
         self.rng = None
-        self.make_trials()
+        self.make_trials(seed=seed)
         if self.iti_max != 0 and self.iti_dist != 'uniform':
             raise Exception("Cannot set iti_max>0 unless iti_dist == 'uniform'")
 
@@ -85,8 +88,11 @@ class ValueInference(Dataset):
         self.trials = []
         if self.first_block_is_random:
             first_blocks = self.rng.choice(self.nblocks, size=self.nepisodes)
+            if self.first_block_identity is not None:
+                first_blocks[0] = self.first_block_identity
         else:
-            first_blocks = [0]*self.nepisodes
+            first_block_identity = 0 if self.first_block_identity is None else self.first_block_identity
+            first_blocks = [first_block_identity]*self.nepisodes
         for i in range(self.nepisodes):
             trials = []
             first_block = first_blocks[i]
