@@ -25,7 +25,6 @@ def data_saver_to_trials(training_trials, training_data, epoch_index=0):
     V = np.hstack([entry['V_hat'] for entry in training_data[epoch_index]])
     Z = np.vstack([entry['Z'][:,0,:] for entry in training_data[epoch_index]])
     rpe = np.hstack([entry['rpe'] for entry in training_data[epoch_index]])
-    print(X.shape, V.shape, Z.shape, rpe.shape)
     assert len(X) == len(Z)
     assert len(X) == (len(V)+1)
 
@@ -69,18 +68,18 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
     if inactivation_indices is not None:
         raise NotImplementedError("inactivation_indices not implemented for TBPTT")
     if stride_size < 1:
-        raise Exception(f'Provided {stride_size=} is invalid; value must be positive')
+        raise Exception(f'Provided {stride_size=} is invalid; must be positive')
     if window_size < 1:
-        raise Exception(f'Provided {window_size=} is invalid; value must be positive')
+        raise Exception(f'Provided {window_size=} is invalid; must be positive')
     if stride_size >= window_size:
-        raise Exception(f'Provided {stride_size=} is invalid; value must be strictly smaller than {window_size=}')
+        raise Exception(f'Provided {stride_size=} is invalid; must be strictly smaller than {window_size=}')
     
     if model.predict_next_input:
         loss_fn = nn.CrossEntropyLoss()
     else:
         loss_fn = nn.MSELoss(reduction='sum')
     if optimizer is None:
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=False)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, amsgrad=True)
 
     losses = []
     losses.append(np.nan)
@@ -145,7 +144,7 @@ def train_model_TBPTT(model, dataloader, epochs=1, optimizer=None, lr=0.003,
                         t_start = 0 if is_first_window_in_block else -stride_size
                         cur_data.append(data_saver(X_window[t_start:], y_window[t_start:], V_hat[t_start:], V_target[t_start:], hs[t_start:], loss, model, optimizer))
                     if c % print_every == 0:
-                        print('Window {}, loss: {:0.3f}'.format(c, cur_window_losses[-1]))
+                        print('Window {} of {}, loss: {:0.3f}'.format(c, len(window_ends), cur_window_losses[-1]))
                 
                 data.append(cur_data)
                 losses.append(np.mean(cur_window_losses))
